@@ -508,9 +508,8 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
       setForm(initialReferral);
       const trackingCode = created.tracking_code || created.referral_code;
       const queueLabel = created.queue_number ? ` · Queue ${created.queue_number}` : '';
-      const recipientLabel = created.sms_recipient ? ` (${created.sms_recipient})` : '';
       const smsNote = created.sms_status === 'sent'
-        ? `SMS sent to patient${recipientLabel}`
+        ? 'SMS sent to patient'
         : created.sms_error
           ? `SMS failed: ${created.sms_error}`
           : 'SMS not sent';
@@ -566,25 +565,24 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                 </div>
 
                 {patientMode === 'existing' ? (
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-4">
                     <Field label="Patient">
                       <SelectInput value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })} required>
                         <option value="">Select patient</option>
                         {patients.map((patient) => (
                           <option key={patient.id} value={patient.id}>
                             {patient.first_name} {patient.last_name}
-                            {patient.contact_number ? ` · ${patient.contact_number}` : ' · no phone'}
                           </option>
                         ))}
                       </SelectInput>
+                      {selectedPatient && (
+                        <p className="mt-1.5 text-xs text-slate-500">
+                          {selectedPatient.contact_number
+                            ? "SMS will be sent to the patient's registered mobile number."
+                            : 'This patient has no registered mobile number. Add one before submitting.'}
+                        </p>
+                      )}
                     </Field>
-                    {selectedPatient && (
-                      <p className="text-xs text-slate-500 md:col-span-2">
-                        SMS will be sent to the patient&apos;s registered number:
-                        {' '}
-                        <span className="font-medium text-slate-700">{selectedPatient.contact_number || 'none on file'}</span>
-                      </p>
-                    )}
                     <Field label="Receiving center">
                       <SelectInput value={form.receiving_health_center_id} onChange={(event) => setForm({ ...form, receiving_health_center_id: event.target.value })} required>
                         <option value="">Select center</option>
@@ -722,7 +720,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
               </Field>
 
               <p className="text-xs text-slate-500">
-                A mobile number is required. SMS includes patient name, queue code, tracker code, and www.carelink-bay.vercel.app.
+                A registered mobile number is required. SMS includes patient name, queue code, and tracker code.
               </p>
 
               <FormActions className="border-t border-slate-100 pt-4">

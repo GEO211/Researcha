@@ -47,6 +47,13 @@ export async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (response.status === 401 && session?.token) {
+      clearSession();
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/track')) {
+        window.dispatchEvent(new CustomEvent('carelink:session-expired'));
+      }
+    }
+
     const error = new Error(data.message || 'Request failed.');
     error.status = response.status;
     error.issues = data.issues || [];

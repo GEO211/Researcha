@@ -116,6 +116,18 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [loadData]);
 
+  useEffect(() => {
+    function handleSessionExpired() {
+      clearSession();
+      setSession(null);
+      setAuthView('login');
+      setError('Your session expired. Please sign in again.');
+    }
+
+    window.addEventListener('carelink:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('carelink:session-expired', handleSessionExpired);
+  }, []);
+
   function logout() {
     clearSession();
     setSession(null);
