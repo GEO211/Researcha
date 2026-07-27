@@ -1,0 +1,1348 @@
+import { Fragment, useMemo, useState } from 'react';
+import {
+  Archive,
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  ClipboardList,
+  ClipboardPen,
+  Clock3,
+  History,
+  Inbox,
+  ListChecks,
+  Send,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import { api } from '../api';
+import {
+  AnimatedGrid,
+  AnimatedGridItem,
+  AnimatedPanel,
+  AnimatedTableRow,
+  Card,
+  Field,
+  FlashMessage,
+  FormActions,
+  InlineFlash,
+  LoadingOverlay,
+  PageBlock,
+  PageStack,
+  ActionButton,
+  PrimaryButton,
+  SelectInput,
+  StatusBadge,
+  FloatingActionMenu,
+  TableBody,
+  TableHead,
+  TableHeadCell,
+  TableShell,
+  TabPanel,
+  TextInput,
+  useConfirm,
+} from '../components/ui';
+import { classNames, priorityLabel } from '../components/helpers';
+
+const initialReferral = {
+  patient_id: '',
+  receiving_health_center_id: '',
+  referral_reason: '',
+  clinical_urgency: 'routine',
+  referral_type: 'routine',
+  severity_level: 'moderate',
+};
+
+const initialQuickPatient = {
+  first_name: '',
+  middle_name: '',
+  last_name: '',
+  birth_date: '',
+  sex: 'female',
+  contact_number: '',
+  address: '',
+  city: 'Koronadal City',
+  province: 'South Cotabato',
+  is_senior: false,
+  is_pregnant: false,
+  is_pwd: false,
+};
+
+const STATUS_GROUPS = {
+  pending: ['submitted', 'under_review'],
+  active: ['queued'],
+  closed: ['completed', 'missed', 'rejected', 'expired', 'archived'],
+};
+
+function isQueuedReferral(referral) {
+  return referral.status === 'queued' && !referral.is_expired;
+}
+
+function needsReferralReview(referral) {
+  return STATUS_GROUPS.pending.includes(referral.status);
+}
+
+function canArchiveReferral(referral) {
+  return ['completed', 'missed', 'rejected', 'expired'].includes(referral.status);
+}
+
+function formatAppointment(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatReferralAppointment(referral) {
+  const scheduled = formatAppointment(referral.appointment_time || referral.appointment_at);
+  if (scheduled) return scheduled;
+
+  if (referral.queue_date) {
+    const queueDate = new Date(`${referral.queue_date}T12:00:00`);
+    if (!Number.isNaN(queueDate.getTime())) {
+      return `Queue ${queueDate.toLocaleDateString(undefined, { dateStyle: 'medium' })}`;
+    }
+  }
+
+  return '—';
+}
+
+function toDatetimeLocalValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function referralTrackingCode(referral) {
+  return referral.tracking_code || referral.referral_code || '—';
+}
+
+function formatPersonName(value) {
+  const name = String(value || '').trim();
+  if (!name || name === '—') return '—';
+  return name
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function referralPatientName(referral) {
+  if (referral.patient_name) return formatPersonName(referral.patient_name);
+  const name = [referral.first_name, referral.last_name].filter(Boolean).join(' ').trim();
+  return formatPersonName(name);
+}
+
+const REFERRAL_ACTION_CONFIRM = {
+  complete: {
+    title: 'Finish referral?',
+    message: 'Mark this referral as completed?',
+    confirmLabel: 'Finish',
+  },
+  cancel: {
+    title: 'Cancel referral?',
+    message: 'Cancel this referral? The patient will no longer be queued.',
+    confirmLabel: 'Cancel referral',
+    tone: 'danger',
+  },
+  'invalid-queue': {
+    title: 'Mark as invalid queue?',
+    message: 'Mark this queue entry as invalid?',
+    confirmLabel: 'Mark invalid',
+    tone: 'danger',
+  },
+  miss: {
+    title: 'Mark as missed?',
+    message: 'Mark this referral as missed and notify the patient?',
+    confirmLabel: 'Mark missed',
+    tone: 'danger',
+  },
+  archive: {
+    title: 'Archive referral?',
+    message: 'Archive this referral record?',
+    confirmLabel: 'Archive',
+  },
+};
+
+function ReferralStats({ referrals, activeGroup, onSelectGroup }) {
+  const counts = useMemo(() => ({
+    all: referrals.length,
+    pending: referrals.filter((r) => STATUS_GROUPS.pending.includes(r.status)).length,
+    active: referrals.filter((r) => STATUS_GROUPS.active.includes(r.status) && !r.is_expired).length,
+    closed: referrals.filter((r) => STATUS_GROUPS.closed.includes(r.status)).length,
+  }), [referrals]);
+
+  const items = [
+    { id: 'all', label: 'All', count: counts.all, tone: 'border-slate-200 bg-white text-slate-700' },
+    { id: 'pending', label: 'Needs review', count: counts.pending, tone: 'border-amber-200 bg-amber-50 text-amber-900' },
+    { id: 'active', label: 'In queue', count: counts.active, tone: 'border-cyan-200 bg-cyan-50 text-cyan-900' },
+    { id: 'closed', label: 'Closed', count: counts.closed, tone: 'border-slate-200 bg-slate-50 text-slate-600' },
+  ];
+
+  return (
+    <AnimatedGrid className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      {items.map((item) => (
+        <AnimatedGridItem key={item.id}>
+          <button
+            type="button"
+            onClick={() => onSelectGroup(item.id)}
+            className={classNames(
+              'w-full rounded-xl border px-3 py-2.5 text-left transition hover:shadow-sm sm:rounded-2xl sm:px-4 sm:py-3',
+              item.tone,
+              activeGroup === item.id ? 'ring-2 ring-cyan-500 ring-offset-1' : '',
+            )}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 sm:text-xs">{item.label}</p>
+            <p className="mt-0.5 text-xl font-bold sm:mt-1 sm:text-2xl">{item.count}</p>
+          </button>
+        </AnimatedGridItem>
+      ))}
+    </AnimatedGrid>
+  );
+}
+
+function WorkflowGuide({ canReview }) {
+  const steps = canReview
+    ? ['Submitted', 'Queued & SMS sent', 'Appointment scheduled', 'Completed']
+    : ['Select patient', 'Submit referral', 'Queue & SMS sent', 'Appointment in 24h'];
+
+  return (
+    <div className="rounded-xl border border-cyan-100 bg-cyan-50/60 px-3 py-3 sm:rounded-2xl sm:px-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-cyan-800 sm:text-xs">
+        {canReview ? 'Referral workflow' : 'Instant referral workflow'}
+      </p>
+      <div className="-mx-1 mt-2 overflow-x-auto pb-1">
+        <div className="flex min-w-max items-center gap-2 px-1 text-xs text-cyan-900">
+          {steps.map((step, index) => (
+            <span key={step} className="inline-flex items-center gap-2">
+              <span className="whitespace-nowrap rounded-full bg-white px-2 py-1 font-medium ring-1 ring-cyan-200">{step}</span>
+              {index < steps.length - 1 ? <span className="text-cyan-400">→</span> : null}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, user, onRefresh }) {
+  const [activeCategory, setActiveCategory] = useState(canReview ? 'records' : 'new');
+  const [recordsTab, setRecordsTab] = useState('list');
+  const [statusGroup, setStatusGroup] = useState(canReview ? 'pending' : 'all');
+
+  const categories = [
+    { id: 'new', label: 'New Referral', description: 'Submit and instantly queue with SMS', icon: ClipboardList },
+    { id: 'records', label: 'Referral Records', description: 'Search, review, and manage referrals', icon: ListChecks },
+  ];
+
+  const filteredReferrals = useMemo(() => {
+    let rows = [...referrals];
+
+    if (statusGroup === 'pending') {
+      rows = rows.filter((r) => STATUS_GROUPS.pending.includes(r.status));
+    } else if (statusGroup === 'active') {
+      rows = rows.filter((r) => STATUS_GROUPS.active.includes(r.status) && !r.is_expired);
+    } else if (statusGroup === 'closed') {
+      rows = rows.filter((r) => STATUS_GROUPS.closed.includes(r.status));
+    }
+
+    if (filters.q) {
+      const q = filters.q.toLowerCase();
+      rows = rows.filter((r) => (
+        referralTrackingCode(r).toLowerCase().includes(q)
+        || referralPatientName(r).toLowerCase().includes(q)
+        || String(r.receiving_center_name || '').toLowerCase().includes(q)
+      ));
+    }
+
+    if (filters.status) {
+      rows = rows.filter((r) => r.status === filters.status);
+    }
+
+    if (filters.priority_level) {
+      rows = rows.filter((r) => r.priority_level === filters.priority_level);
+    }
+
+    return rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [referrals, statusGroup, filters]);
+
+  const historyReferrals = useMemo(
+    () => [...referrals].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100),
+    [referrals],
+  );
+
+  const recordsTabs = [
+    { id: 'list', label: 'Active list', icon: Inbox },
+    { id: 'history', label: 'History', icon: History },
+    ...(canReview ? [{ id: 'sms', label: 'Send SMS', icon: Send }] : []),
+  ];
+
+  function handleStatusGroup(group) {
+    setStatusGroup(group);
+    if (group === 'pending') {
+      setFilters((current) => ({ ...current, status: '' }));
+    } else if (group === 'active') {
+      setFilters((current) => ({ ...current, status: 'queued' }));
+    } else {
+      setFilters((current) => ({ ...current, status: '' }));
+    }
+  }
+
+  async function handleReferralCreated() {
+    await onRefresh();
+    setActiveCategory('records');
+    setRecordsTab('list');
+  }
+
+  return (
+    <PageStack>
+      <PageBlock>
+        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/60 sm:rounded-3xl">
+          <AnimatedPanel className="mb-4 px-1">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Referrals</h2>
+            <p className="text-sm text-slate-500">Choose a referral workflow category.</p>
+          </AnimatedPanel>
+          <AnimatedGrid className="grid gap-3 sm:grid-cols-2">
+            {categories.map((category) => {
+              const Icon = category.icon;
+              const isActive = activeCategory === category.id;
+
+              return (
+                <AnimatedGridItem key={category.id}>
+                  <button
+                    type="button"
+                    onClick={() => setActiveCategory(category.id)}
+                    className={classNames(
+                      'group w-full rounded-2xl border p-4 text-left transition',
+                      isActive
+                        ? 'border-cyan-200 bg-cyan-50 shadow-sm shadow-cyan-900/10'
+                        : 'border-slate-200 bg-white hover:border-cyan-200 hover:bg-slate-50',
+                    )}
+                  >
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className={classNames(
+                        'rounded-xl p-2 transition',
+                        isActive ? 'bg-cyan-700 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-cyan-50 group-hover:text-cyan-700',
+                      )}
+                      >
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      {isActive ? <span className="rounded-full bg-cyan-700 px-2 py-0.5 text-xs font-semibold text-white">Active</span> : null}
+                    </div>
+                    <p className="font-semibold text-slate-950">{category.label}</p>
+                    <p className="mt-1 text-xs text-slate-500">{category.description}</p>
+                  </button>
+                </AnimatedGridItem>
+              );
+            })}
+          </AnimatedGrid>
+        </section>
+      </PageBlock>
+
+      <PageBlock>
+        <TabPanel panelKey={activeCategory}>
+          {activeCategory === 'new' ? (
+            <div className="space-y-4">
+              <WorkflowGuide canReview={canReview} />
+              <ReferralForm
+                patients={patients}
+                healthCenters={healthCenters}
+                user={user}
+                onCreated={handleReferralCreated}
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <ReferralStats referrals={referrals} activeGroup={statusGroup} onSelectGroup={handleStatusGroup} />
+
+              <div className="-mx-1 overflow-x-auto border-b border-slate-200 pb-px">
+                <div className="flex min-w-max gap-1 px-1">
+                  {recordsTabs.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setRecordsTab(tab.id)}
+                        className={classNames(
+                          'inline-flex shrink-0 items-center gap-2 rounded-t-xl px-3 py-2.5 text-sm font-semibold transition sm:px-4',
+                          recordsTab === tab.id
+                            ? 'bg-white text-cyan-800 ring-1 ring-slate-200 ring-b-white'
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700',
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span className="whitespace-nowrap">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {recordsTab === 'list' ? (
+                <ReferralTable
+                  referrals={filteredReferrals}
+                  totalCount={referrals.length}
+                  onRefresh={onRefresh}
+                  canReview={canReview}
+                  filters={filters}
+                  setFilters={setFilters}
+                  statusGroup={statusGroup}
+                />
+              ) : null}
+
+              {recordsTab === 'history' ? (
+                <ReferralHistory referrals={historyReferrals} />
+              ) : null}
+
+              {recordsTab === 'sms' && canReview ? (
+                <ManualSmsPanel referrals={referrals} onRefresh={onRefresh} />
+              ) : null}
+            </div>
+          )}
+        </TabPanel>
+      </PageBlock>
+    </PageStack>
+  );
+}
+
+function ReferralForm({ patients, healthCenters, user, onCreated }) {
+  const confirm = useConfirm();
+  const [form, setForm] = useState(initialReferral);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [patientMode, setPatientMode] = useState('existing');
+  const [quickPatient, setQuickPatient] = useState(initialQuickPatient);
+  const [patientMessage, setPatientMessage] = useState('');
+  const [patientError, setPatientError] = useState('');
+  const [registeringPatient, setRegisteringPatient] = useState(false);
+  const receivingCenters = healthCenters.filter((center) => center.type === 'city' && center.status === 'active');
+  const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
+  const selectedPatient = patients.find((patient) => String(patient.id) === String(form.patient_id));
+  const patientContact = patientMode === 'new' ? quickPatient.contact_number : selectedPatient?.contact_number;
+  const canSubmitReferral = form.patient_id && form.receiving_health_center_id && form.referral_reason.trim() && patientContact;
+
+  function updateQuickPatient(key, value) {
+    setQuickPatient((current) => ({ ...current, [key]: value }));
+  }
+
+  async function registerPatient(event) {
+    event.preventDefault();
+    setPatientMessage('');
+    setPatientError('');
+
+    const confirmed = await confirm({
+      title: 'Register patient?',
+      message: 'Save this patient and use them for this referral?',
+      confirmLabel: 'Register & select',
+    });
+    if (!confirmed) return;
+
+    const healthCenterId = user?.role === 'barangay_staff'
+      ? user.health_center_id
+      : defaultHealthCenterId;
+
+    if (!healthCenterId) {
+      setPatientError('No barangay health center is available for registration.');
+      return;
+    }
+
+    setRegisteringPatient(true);
+    try {
+      const created = await api('/patients', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...quickPatient,
+          health_center_id: Number(healthCenterId),
+        }),
+      });
+      await onCreated();
+      setForm((current) => ({ ...current, patient_id: String(created.id) }));
+      setQuickPatient(initialQuickPatient);
+      setPatientMode('existing');
+      setPatientMessage(`${created.first_name} ${created.last_name} registered and selected.`);
+    } catch (err) {
+      const details = err.issues?.length
+        ? err.issues.map((issue) => `${issue.field}: ${issue.message}`).join(' ')
+        : err.message;
+      setPatientError(details);
+    } finally {
+      setRegisteringPatient(false);
+    }
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+
+    if (patientMode === 'new' && !form.patient_id) {
+      setError('Register the patient first using "Register & select patient", or switch to Existing patient.');
+      return;
+    }
+
+    if (!canSubmitReferral) {
+      setError('Select a patient with a mobile number, receiving center, and referral reason.');
+      return;
+    }
+
+    const confirmed = await confirm({
+      title: 'Submit referral?',
+      message: 'Submit this referral? A queue number, appointment (~24h), and SMS will be sent automatically.',
+      confirmLabel: 'Submit referral',
+    });
+    if (!confirmed) return;
+
+    setSubmitting(true);
+    try {
+      const created = await api('/referrals', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          patient_id: Number(form.patient_id),
+          receiving_health_center_id: Number(form.receiving_health_center_id),
+        }),
+      });
+      setForm(initialReferral);
+      const trackingCode = created.tracking_code || created.referral_code;
+      const queueLabel = created.queue_number ? ` · Queue ${created.queue_number}` : '';
+      const recipientLabel = created.sms_recipient ? ` (${created.sms_recipient})` : '';
+      const smsNote = created.sms_status === 'sent'
+        ? `SMS sent to patient${recipientLabel}`
+        : created.sms_error
+          ? `SMS failed: ${created.sms_error}`
+          : 'SMS not sent';
+      setMessage(`Queued · ${trackingCode}${queueLabel} · ${smsNote}`);
+      onCreated();
+    } catch (err) {
+      const details = err.issues?.length
+        ? err.issues.map((issue) => `${issue.field}: ${issue.message}`).join(' ')
+        : err.message;
+      setError(details);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <LoadingOverlay open={submitting} label="Submitting" />
+      <LoadingOverlay open={registeringPatient} label="Registering patient" />
+      <Card title="New Referral" icon={ClipboardList}>
+        <p className="mb-4 text-sm text-slate-500">
+          Submit a referral to instantly assign queue priority, schedule an appointment (~24 hours), and notify the patient by SMS.
+        </p>
+        <form onSubmit={submit} className="space-y-5">
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPatientMode('existing')}
+                    className={classNames(
+                      'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition',
+                      patientMode === 'existing'
+                        ? 'border-cyan-300 bg-cyan-50 text-cyan-900'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                    )}
+                  >
+                    <Users className="h-4 w-4" />
+                    Existing patient
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPatientMode('new')}
+                    className={classNames(
+                      'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold transition',
+                      patientMode === 'new'
+                        ? 'border-cyan-300 bg-cyan-50 text-cyan-900'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                    )}
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Register new patient
+                  </button>
+                </div>
+
+                {patientMode === 'existing' ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label="Patient">
+                      <SelectInput value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })} required>
+                        <option value="">Select patient</option>
+                        {patients.map((patient) => (
+                          <option key={patient.id} value={patient.id}>
+                            {patient.first_name} {patient.last_name}
+                            {patient.contact_number ? ` · ${patient.contact_number}` : ' · no phone'}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+                    {selectedPatient && (
+                      <p className="text-xs text-slate-500 md:col-span-2">
+                        SMS will be sent to the patient&apos;s registered number:
+                        {' '}
+                        <span className="font-medium text-slate-700">{selectedPatient.contact_number || 'none on file'}</span>
+                      </p>
+                    )}
+                    <Field label="Receiving center">
+                      <SelectInput value={form.receiving_health_center_id} onChange={(event) => setForm({ ...form, receiving_health_center_id: event.target.value })} required>
+                        <option value="">Select center</option>
+                        {receivingCenters.map((center) => (
+                          <option key={center.id} value={center.id}>{center.name}</option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
+                    <p className="mb-3 text-sm font-medium text-emerald-900">Quick patient registration</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <Field label="First name">
+                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} required />
+                      </Field>
+                      <Field label="Middle name">
+                        <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} />
+                      </Field>
+                      <Field label="Last name">
+                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} required />
+                      </Field>
+                      <Field label="Birth date">
+                        <TextInput type="date" value={quickPatient.birth_date} onChange={(event) => updateQuickPatient('birth_date', event.target.value)} required />
+                      </Field>
+                      <Field label="Sex">
+                        <SelectInput value={quickPatient.sex} onChange={(event) => updateQuickPatient('sex', event.target.value)}>
+                          <option value="female">Female</option>
+                          <option value="male">Male</option>
+                          <option value="other">Other</option>
+                        </SelectInput>
+                      </Field>
+                      <Field label="Contact number">
+                        <TextInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} placeholder="09XXXXXXXXX" required />
+                      </Field>
+                      <div className="sm:col-span-2 lg:col-span-3">
+                        <Field label="Address">
+                          <TextInput value={quickPatient.address} onChange={(event) => updateQuickPatient('address', event.target.value)} required />
+                        </Field>
+                      </div>
+                      <Field label="City">
+                        <TextInput value={quickPatient.city} onChange={(event) => updateQuickPatient('city', event.target.value)} />
+                      </Field>
+                      <Field label="Province">
+                        <TextInput value={quickPatient.province} onChange={(event) => updateQuickPatient('province', event.target.value)} />
+                      </Field>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      {[
+                        ['is_senior', 'Senior'],
+                        ['is_pregnant', 'Pregnant'],
+                        ['is_pwd', 'PWD'],
+                      ].map(([key, label]) => (
+                        <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-emerald-100">
+                          <input
+                            type="checkbox"
+                            checked={quickPatient[key]}
+                            onChange={(event) => updateQuickPatient(key, event.target.checked)}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                      <PrimaryButton
+                        type="button"
+                        className="w-full sm:w-auto"
+                        disabled={registeringPatient || !quickPatient.first_name || !quickPatient.last_name || !quickPatient.birth_date || !quickPatient.address || !quickPatient.contact_number}
+                        onClick={registerPatient}
+                      >
+                        Register & select patient
+                      </PrimaryButton>
+                      <InlineFlash message={patientMessage} type="success" />
+                    </div>
+                    <div className="mt-3">
+                      <FlashMessage message={patientError} type="error" />
+                    </div>
+                  </div>
+                )}
+
+                {patientMode === 'existing' ? null : (
+                  <Field label="Receiving center">
+                    <SelectInput value={form.receiving_health_center_id} onChange={(event) => setForm({ ...form, receiving_health_center_id: event.target.value })} required>
+                      <option value="">Select center</option>
+                      {receivingCenters.map((center) => (
+                        <option key={center.id} value={center.id}>{center.name}</option>
+                      ))}
+                    </SelectInput>
+                  </Field>
+                )}
+
+                {patientMessage && patientMode === 'existing' ? (
+                  <InlineFlash message={patientMessage} type="success" />
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Classification</p>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <Field label="Clinical urgency">
+                    <SelectInput value={form.clinical_urgency} onChange={(event) => setForm({ ...form, clinical_urgency: event.target.value })}>
+                      <option value="routine">Routine</option>
+                      <option value="urgent">Urgent</option>
+                      <option value="emergency">Emergency</option>
+                    </SelectInput>
+                  </Field>
+                  <Field label="Referral type">
+                    <SelectInput value={form.referral_type} onChange={(event) => setForm({ ...form, referral_type: event.target.value })}>
+                      <option value="routine">Routine</option>
+                      <option value="follow_up">Follow-up</option>
+                      <option value="specialist_consultation">Specialist consultation</option>
+                      <option value="emergency">Emergency</option>
+                    </SelectInput>
+                  </Field>
+                  <Field label="Severity">
+                    <SelectInput value={form.severity_level} onChange={(event) => setForm({ ...form, severity_level: event.target.value })}>
+                      <option value="low">Low</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </SelectInput>
+                  </Field>
+                </div>
+              </div>
+
+              <Field label="Referral reason">
+                <textarea
+                  value={form.referral_reason}
+                  onChange={(event) => setForm({ ...form, referral_reason: event.target.value })}
+                  required
+                  rows={4}
+                  placeholder="Describe the reason for referral..."
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+                />
+              </Field>
+
+              <p className="text-xs text-slate-500">
+                A mobile number is required. SMS includes patient name, queue code, tracker code, and www.carelink-bay.vercel.app.
+              </p>
+
+              <FormActions className="border-t border-slate-100 pt-4">
+                <PrimaryButton className="w-full sm:w-auto" disabled={!canSubmitReferral || submitting}>
+                  Submit referral
+                </PrimaryButton>
+                <InlineFlash message={message} type="success" />
+              </FormActions>
+              <FlashMessage message={error} type="error" />
+        </form>
+      </Card>
+    </>
+  );
+}
+
+function ReferralReviewPanel({ referral, mode, decision, setDecision, onSubmit, onClose, error }) {
+  return (
+    <div className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">
+            {mode === 'schedule' ? 'Schedule appointment' : 'Review referral'}
+          </p>
+          <p className="text-xs text-slate-500">
+            {referralTrackingCode(referral)} · {referralPatientName(referral)}
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+          Close
+        </button>
+      </div>
+      <form onSubmit={onSubmit} className="grid gap-3 md:grid-cols-2">
+        {mode === 'review' ? (
+          <Field label="Decision">
+            <SelectInput value={decision.status} onChange={(event) => setDecision({ ...decision, status: event.target.value })}>
+              <option value="approved">Approve — assign queue & send SMS</option>
+              <option value="rejected">Reject — notify patient</option>
+            </SelectInput>
+          </Field>
+        ) : null}
+        <Field label="Appointment (optional for approval)">
+          <TextInput
+            type="datetime-local"
+            value={decision.appointment_time}
+            onChange={(event) => setDecision({ ...decision, appointment_time: event.target.value })}
+            required={mode === 'schedule'}
+          />
+        </Field>
+        {mode === 'review' && decision.status === 'rejected' ? (
+          <div className="md:col-span-2">
+            <Field label="Rejection reason">
+              <TextInput
+                value={decision.rejection_reason}
+                onChange={(event) => setDecision({ ...decision, rejection_reason: event.target.value })}
+                placeholder="Reason shown to patient in SMS"
+                required
+              />
+            </Field>
+          </div>
+        ) : null}
+        <div className="flex gap-2 md:col-span-2">
+          <PrimaryButton>{mode === 'schedule' ? 'Save appointment' : 'Save decision'}</PrimaryButton>
+        </div>
+        <div className="md:col-span-2">
+          <FlashMessage message={error} type="error" />
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ReferralRowActions({ referral, canReview, rowBusy, onReview, onSchedule, onAction, stacked = false }) {
+  const wrapClass = stacked
+    ? 'flex flex-col gap-2 sm:flex-row sm:flex-wrap'
+    : 'inline-flex flex-nowrap items-center gap-1.5';
+
+  if (!canReview) {
+    return <span className="text-xs text-slate-400">Awaiting city review</span>;
+  }
+
+  if (needsReferralReview(referral)) {
+    return (
+      <div className={wrapClass}>
+        <ActionButton variant="info" icon={ClipboardPen} disabled={rowBusy} onClick={() => onReview(referral)}>
+          Review
+        </ActionButton>
+      </div>
+    );
+  }
+
+  if (isQueuedReferral(referral)) {
+    const moreMenu = ({ close }) => (
+      <>
+        <button type="button" disabled={rowBusy} onClick={() => { onSchedule(referral); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50">
+          Schedule appointment
+        </button>
+        <button type="button" disabled={rowBusy} onClick={() => { onAction(referral.id, 'miss'); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-slate-50">Mark missed</button>
+        <button type="button" disabled={rowBusy} onClick={() => { onAction(referral.id, 'cancel'); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-slate-50">Cancel</button>
+        <button type="button" disabled={rowBusy} onClick={() => { onAction(referral.id, 'invalid-queue'); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50">Invalid queue</button>
+      </>
+    );
+
+    if (stacked) {
+      return (
+        <div className={wrapClass}>
+          <ActionButton variant="info" icon={CalendarClock} disabled={rowBusy} onClick={() => onSchedule(referral)}>
+            Schedule
+          </ActionButton>
+          <ActionButton variant="success" icon={CheckCircle2} disabled={rowBusy} onClick={() => onAction(referral.id, 'complete')}>
+            Finish
+          </ActionButton>
+          <FloatingActionMenu
+            label="More"
+            icon={ChevronDown}
+            disabled={rowBusy}
+            triggerClassName="w-full rounded-xl px-3 py-2 sm:w-auto"
+          >
+            {moreMenu}
+          </FloatingActionMenu>
+        </div>
+      );
+    }
+
+    return (
+      <div className={wrapClass}>
+        <ActionButton variant="success" icon={CheckCircle2} disabled={rowBusy} onClick={() => onAction(referral.id, 'complete')}>
+          Finish
+        </ActionButton>
+        <FloatingActionMenu
+          label="More"
+          icon={ChevronDown}
+          disabled={rowBusy}
+        >
+          {moreMenu}
+        </FloatingActionMenu>
+      </div>
+    );
+  }
+
+  if (canArchiveReferral(referral)) {
+    return (
+      <div className={wrapClass}>
+        <ActionButton variant="neutral" icon={Archive} disabled={rowBusy} onClick={() => onAction(referral.id, 'archive')}>
+          Archive
+        </ActionButton>
+      </div>
+    );
+  }
+
+  return <span className="text-xs text-slate-400">—</span>;
+}
+
+function ReferralFilters({ filters, setFilters }) {
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  const hasFilters = Boolean(filters.q || filters.status || filters.priority_level);
+
+  function clearFilters() {
+    setFilters({ q: '', status: '', priority_level: '' });
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3 sm:p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-3">
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <label className="block min-w-0 sm:col-span-2 xl:col-span-1">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Search</span>
+            <TextInput
+              value={filters.q}
+              onChange={(event) => updateFilter('q', event.target.value)}
+              placeholder="Tracking code or patient"
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status</span>
+            <SelectInput value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
+              <option value="">Any status</option>
+              <option value="submitted">Submitted</option>
+              <option value="under_review">Under review</option>
+              <option value="queued">Queued</option>
+              <option value="completed">Completed</option>
+              <option value="missed">Missed</option>
+              <option value="rejected">Rejected</option>
+              <option value="archived">Cancelled</option>
+              <option value="expired">Expired</option>
+            </SelectInput>
+          </label>
+          <label className="block min-w-0">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Priority</span>
+            <SelectInput value={filters.priority_level} onChange={(event) => updateFilter('priority_level', event.target.value)}>
+              <option value="">Any priority</option>
+              <option value="priority_1_emergency">Priority 1 Emergency</option>
+              <option value="priority_2_vulnerable">Priority 2 Vulnerable</option>
+              <option value="priority_3_standard">Priority 3 Standard</option>
+            </SelectInput>
+          </label>
+        </div>
+        {hasFilters ? (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="shrink-0 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 lg:mb-0.5"
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ReferralRecordCard({
+  referral,
+  canReview,
+  rowBusy,
+  isExpanded,
+  reviewMode,
+  decision,
+  setDecision,
+  onReview,
+  onSchedule,
+  onAction,
+  onSubmitReview,
+  onCloseReview,
+  actionError,
+}) {
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</p>
+          <p className="mt-1 text-sm font-medium text-slate-900">{referralPatientName(referral)}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{referral.receiving_center_name}</p>
+        </div>
+        <StatusBadge value={referral.status} />
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="rounded-xl bg-slate-50 px-3 py-2">
+          <dt className="text-slate-500">Priority</dt>
+          <dd className="mt-0.5 font-medium text-slate-800">{priorityLabel(referral.priority_level)}</dd>
+        </div>
+        <div className="rounded-xl bg-slate-50 px-3 py-2">
+          <dt className="text-slate-500">Queue</dt>
+          <dd className="mt-0.5 font-medium text-slate-800">{referral.queue_number ? `#${referral.queue_number}` : '—'}</dd>
+        </div>
+        <div className="col-span-2 rounded-xl bg-slate-50 px-3 py-2">
+          <dt className="text-slate-500">Appointment</dt>
+          <dd className="mt-0.5 font-medium text-slate-800">{formatReferralAppointment(referral)}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <ReferralRowActions
+          referral={referral}
+          canReview={canReview}
+          rowBusy={rowBusy}
+          onReview={onReview}
+          onSchedule={onSchedule}
+          onAction={onAction}
+          stacked
+        />
+      </div>
+
+      {isExpanded ? (
+        <div className="mt-3">
+          <ReferralReviewPanel
+            referral={referral}
+            mode={reviewMode}
+            decision={decision}
+            setDecision={setDecision}
+            onSubmit={onSubmitReview}
+            onClose={onCloseReview}
+            error={actionError}
+          />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, setFilters, statusGroup }) {
+  const confirm = useConfirm();
+  const [reviewing, setReviewing] = useState(null);
+  const [reviewMode, setReviewMode] = useState('review');
+  const [actionError, setActionError] = useState('');
+  const [actingId, setActingId] = useState(null);
+  const [decision, setDecision] = useState({ status: 'approved', appointment_time: '', rejection_reason: '' });
+
+  function openReview(referral, mode = 'review') {
+    setActionError('');
+    setReviewMode(mode);
+    setReviewing(referral);
+    setDecision({
+      status: 'approved',
+      appointment_time: toDatetimeLocalValue(referral.appointment_time || referral.appointment_at),
+      rejection_reason: '',
+    });
+  }
+
+  async function startReview(referral) {
+    setActionError('');
+    setActingId(referral.id);
+    try {
+      if (referral.status === 'submitted') {
+        await api(`/referrals/${referral.id}/review`, { method: 'POST' });
+        await onRefresh();
+      }
+      openReview({ ...referral, status: referral.status === 'submitted' ? 'under_review' : referral.status }, 'review');
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  async function submitReview(event) {
+    event.preventDefault();
+    setActionError('');
+
+    let confirmOptions;
+    if (reviewMode === 'schedule') {
+      if (!decision.appointment_time) {
+        setActionError('Select an appointment date and time.');
+        return;
+      }
+      confirmOptions = {
+        title: 'Save appointment?',
+        message: 'Set this appointment date and time for the referral?',
+        confirmLabel: 'Save appointment',
+      };
+    } else if (decision.status === 'approved') {
+      confirmOptions = {
+        title: 'Approve referral?',
+        message: 'Approve this referral, assign queue priority, and notify the patient?',
+        confirmLabel: 'Approve',
+      };
+    } else {
+      confirmOptions = {
+        title: 'Reject referral?',
+        message: 'Reject this referral? The patient will be notified.',
+        confirmLabel: 'Reject',
+        tone: 'danger',
+      };
+    }
+
+    const confirmed = await confirm(confirmOptions);
+    if (!confirmed) return;
+
+    try {
+      if (reviewMode === 'schedule') {
+        await api(`/referrals/${reviewing.id}/appointment`, {
+          method: 'POST',
+          body: JSON.stringify({ appointment_at: decision.appointment_time }),
+        });
+      } else if (decision.status === 'approved') {
+        await api(`/referrals/${reviewing.id}/approve`, {
+          method: 'POST',
+          body: JSON.stringify({ appointment_at: decision.appointment_time || null }),
+        });
+      } else {
+        await api(`/referrals/${reviewing.id}/reject`, {
+          method: 'POST',
+          body: JSON.stringify({ rejection_reason: decision.rejection_reason || 'Rejected during review.' }),
+        });
+      }
+      setReviewing(null);
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.message);
+    }
+  }
+
+  async function action(id, endpoint) {
+    const confirmOptions = REFERRAL_ACTION_CONFIRM[endpoint];
+    if (!confirmOptions) return;
+
+    const confirmed = await confirm(confirmOptions);
+    if (!confirmed) return;
+
+    setActionError('');
+    setActingId(id);
+    try {
+      if (endpoint === 'miss') {
+        await api(`/referrals/${id}/miss`, { method: 'POST' });
+      } else {
+        await api(`/referrals/${id}/${endpoint}`, { method: 'POST' });
+      }
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  const isActing = (id) => actingId === id;
+  const groupLabels = {
+    all: 'All referrals',
+    pending: 'Needs review',
+    active: 'In queue',
+    closed: 'Closed referrals',
+  };
+
+  return (
+    <Card title="Referral records" icon={ListChecks}>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-600">
+          <span className="font-semibold text-slate-900">{referrals.length}</span>
+          {' '}
+          of
+          {' '}
+          <span className="font-semibold text-slate-900">{totalCount}</span>
+          {' '}
+          referrals
+          <span className="mx-2 text-slate-300">·</span>
+          <span className="text-slate-500">{groupLabels[statusGroup] || 'Filtered view'}</span>
+        </p>
+      </div>
+
+      <div className="mb-4">
+        <ReferralFilters filters={filters} setFilters={setFilters} />
+      </div>
+
+      {actionError && !reviewing ? (
+        <div className="mb-4">
+          <FlashMessage message={actionError} type="error" />
+        </div>
+      ) : null}
+
+      {referrals.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center sm:px-6">
+          <Inbox className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-sm font-medium text-slate-700">No referrals match this view</p>
+          <p className="mt-1 text-xs text-slate-500">Try another summary card or clear your filters.</p>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3 lg:hidden">
+            {referrals.map((referral) => (
+              <ReferralRecordCard
+                key={referral.id}
+                referral={referral}
+                canReview={canReview}
+                rowBusy={isActing(referral.id)}
+                isExpanded={reviewing?.id === referral.id}
+                reviewMode={reviewMode}
+                decision={decision}
+                setDecision={setDecision}
+                onReview={startReview}
+                onSchedule={(row) => openReview(row, 'schedule')}
+                onAction={action}
+                onSubmitReview={submitReview}
+                onCloseReview={() => setReviewing(null)}
+                actionError={actionError}
+              />
+            ))}
+          </div>
+
+          <div className="hidden lg:block">
+            <TableShell minWidth="880px">
+              <TableHead>
+                <TableHeadCell className="w-[18%]">Tracking</TableHeadCell>
+                <TableHeadCell className="w-[14%]">Patient</TableHeadCell>
+                <TableHeadCell className="w-[10%]">Status</TableHeadCell>
+                <TableHeadCell className="w-[16%]">Priority / Queue</TableHeadCell>
+                <TableHeadCell className="w-[18%]">Appointment</TableHeadCell>
+                <TableHeadCell className="w-[12%] text-right">Actions</TableHeadCell>
+              </TableHead>
+              <TableBody>
+                {referrals.map((referral, index) => {
+                  const rowBusy = isActing(referral.id);
+                  const isExpanded = reviewing?.id === referral.id;
+
+                  return (
+                    <Fragment key={referral.id}>
+                      <AnimatedTableRow index={index}>
+                        <td className="px-4 py-3 align-top">
+                          <p className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{referral.receiving_center_name}</p>
+                        </td>
+                        <td className="px-4 py-3 align-top text-sm font-medium text-slate-800">{referralPatientName(referral)}</td>
+                        <td className="px-4 py-3 align-top"><StatusBadge value={referral.status} /></td>
+                        <td className="px-4 py-3 align-top">
+                          <p className="text-sm font-medium text-slate-800">{priorityLabel(referral.priority_level)}</p>
+                          {referral.queue_number ? (
+                            <p className="mt-0.5 text-xs text-slate-500">Queue #{referral.queue_number}</p>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 align-top text-sm text-slate-700">{formatReferralAppointment(referral)}</td>
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex justify-end">
+                            <ReferralRowActions
+                              referral={referral}
+                              canReview={canReview}
+                              rowBusy={rowBusy}
+                              onReview={startReview}
+                              onSchedule={(row) => openReview(row, 'schedule')}
+                              onAction={action}
+                            />
+                          </div>
+                        </td>
+                      </AnimatedTableRow>
+                      {isExpanded ? (
+                        <tr>
+                          <td colSpan={6} className="border-b border-slate-100 bg-white p-3">
+                            <ReferralReviewPanel
+                              referral={referral}
+                              mode={reviewMode}
+                              decision={decision}
+                              setDecision={setDecision}
+                              onSubmit={submitReview}
+                              onClose={() => setReviewing(null)}
+                              error={actionError}
+                            />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </TableBody>
+            </TableShell>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function ReferralHistory({ referrals }) {
+  return (
+    <Card title="Referral history" icon={History}>
+      <p className="mb-4 text-sm text-slate-500">Chronological log of all submissions and outcomes.</p>
+      {referrals.length === 0 ? (
+        <p className="text-sm text-slate-500">No referral history yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {referrals.map((referral) => (
+            <div key={referral.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</span>
+                  <StatusBadge value={referral.status} />
+                </div>
+                <p className="mt-1 text-sm font-medium text-slate-800">{referralPatientName(referral)}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{referral.receiving_center_name}</p>
+              </div>
+              <div className="text-right text-xs text-slate-500">
+                <div className="inline-flex items-center gap-1">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  {new Date(referral.created_at).toLocaleString()}
+                </div>
+                {referral.queue_number ? (
+                  <p className="mt-1 font-medium text-slate-700">Queue #{referral.queue_number}</p>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ManualSmsPanel({ referrals, onRefresh }) {
+  const confirm = useConfirm();
+  const [form, setForm] = useState({ referral_id: '', message: '' });
+  const [status, setStatus] = useState('');
+  const eligibleReferrals = useMemo(() => referrals.filter((referral) => referral.contact_number), [referrals]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setStatus('');
+
+    const confirmed = await confirm({
+      title: 'Send SMS?',
+      message: 'Send this manual SMS to the patient?',
+      confirmLabel: 'Send SMS',
+    });
+    if (!confirmed) return;
+
+    await api('/sms/manual', { method: 'POST', body: JSON.stringify({ ...form, referral_id: Number(form.referral_id) }) });
+    setForm({ referral_id: '', message: '' });
+    setStatus('Manual SMS sent.');
+    await onRefresh();
+  }
+
+  return (
+    <Card title="Manual SMS" icon={Send}>
+      <p className="mb-4 text-sm text-slate-500">
+        Send a one-off message to a patient with a contact number on file.
+      </p>
+      <form onSubmit={submit} className="grid max-w-2xl gap-3">
+        <Field label="Referral">
+          <SelectInput value={form.referral_id} onChange={(event) => setForm({ ...form, referral_id: event.target.value })} required>
+            <option value="">Select referral</option>
+            {eligibleReferrals.map((referral) => (
+              <option key={referral.id} value={referral.id}>
+                {referralTrackingCode(referral)} — {referralPatientName(referral)}
+              </option>
+            ))}
+          </SelectInput>
+        </Field>
+        <Field label="Message">
+          <textarea
+            value={form.message}
+            onChange={(event) => setForm({ ...form, message: event.target.value })}
+            required
+            rows={3}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
+          />
+        </Field>
+        <FormActions className="border-t-0 pt-0">
+          <PrimaryButton>Send SMS</PrimaryButton>
+          <InlineFlash message={status} type="success" />
+        </FormActions>
+      </form>
+    </Card>
+  );
+}

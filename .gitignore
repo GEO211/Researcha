@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output (deploy via npm run deploy:github)
+client/dist/
+dist/
+.gh-pages/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+server/.env
+client/.env.development
+client/.env.production
+
+# Supabase local
+supabase/.branches
+supabase/.temp
+
+# Logs and debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+.cursor/
+
+# Vite / tooling cache
+.vite/
+**/.vite/
+coverage/
+.eslintcache
+
+# Archives / local packages
+*.rar
+*.zip
+*.7z
+
+# Firebase local

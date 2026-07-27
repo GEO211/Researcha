@@ -1,0 +1,658 @@
+CareLink Build Roadmap
+======================
+
+Project Summary
+---------------
+CareLink is a web-based smart health referral system for Barangay Health Centers and the Koronadal City Health Center. Its purpose is to replace manual paper-based referrals with a digital workflow that supports patient registration, referral submission, city health center review, automated queue prioritization, SMS notifications, referral tracking, reporting, and administrative control.
+
+Primary goals:
+1. Streamline referral processing between barangay health centers and the city health center.
+2. Automatically classify approved referrals using a rules-based priority algorithm.
+3. Send SMS updates for approval, appointment reminders, and missed referrals.
+4. Track referral status from submission to completion.
+5. Provide analytics for referral volume, queue trends, completion rates, and SMS activity.
+6. Enforce role-based access for Super Admin, Barangay Health Center Staff, City Health Center Staff, and Patients.
+
+Recommended Technology Stack
+----------------------------
+Backend:
+- Node.js
+- Express.js or Fastify for the API backend
+- JWT or secure cookie-based authentication
+- node-cron for scheduled reminders
+- BullMQ, Bee-Queue, or a simple database-backed job table for SMS jobs
+
+Database:
+- MySQL as the main relational database
+- phpMyAdmin/phpMySQL-style database management for creating, inspecting, importing, and backing up tables
+
+Frontend:
+- Vite.js for the web frontend
+- React, Vue, or vanilla JavaScript depending on team preference
+- Tailwind CSS
+- Responsive layouts for desktop and mobile patient views
+
+External Services:
+- Semaphore SMS Gateway for patient notifications
+
+Development Tools:
+- Visual Studio Code
+- Node.js and npm
+- phpMyAdmin or an equivalent MySQL administration tool
+- Git
+- Figma for UI wireframes
+- Google Chrome or another modern browser for testing
+
+Deployment:
+- Deploy the Vite frontend to Vercel, Netlify, or another static hosting provider.
+- Deploy the Node.js API to a Node-compatible host such as Render, Railway, VPS hosting, or a similar service.
+- Use a production MySQL database.
+- Configure HTTPS, environment variables, API process management, queue workers, and scheduler jobs.
+
+System Users and Permissions
+----------------------------
+1. Super Admin
+   - Log in and access admin dashboard.
+   - Manage user accounts.
+   - Manage health center profiles.
+   - Configure priority scoring weights and thresholds.
+   - Configure SMS notification triggers.
+   - View audit logs and system activity.
+   - View high-level system metrics.
+
+2. Barangay Health Center Staff
+   - Log in and access barangay dashboard.
+   - Register patients.
+   - Create and update patient records.
+   - Submit digital referral forms.
+   - Track submitted referral statuses.
+   - View referral history for their assigned health center.
+
+3. City Health Center Staff
+   - Log in and access city dashboard.
+   - View incoming referrals.
+   - Review referral details and patient records.
+   - Approve or reject referrals.
+   - Trigger automatic priority scoring and queue assignment on approval.
+   - Manage the prioritized queue.
+   - Mark referrals as completed or missed.
+   - View analytics and reports.
+
+4. Patient
+   - Receive SMS notifications.
+   - View referral status using a secure public tracking link or reference code.
+   - View queue number, queue position, and priority classification.
+
+Suggested Database Schema
+-------------------------
+Use migrations from the start. Add created_at and updated_at timestamps to all major tables. Add soft deletes where auditability matters.
+
+users
+- id
+- health_center_id nullable
+- name
+- email unique
+- password
+- role enum: super_admin, barangay_staff, city_staff
+- status enum: active, disabled
+- last_login_at nullable
+- remember_token
+- timestamps
+
+health_centers
+- id
+- name
+- type enum: barangay, city
+- address
+- contact_number nullable
+- status enum: active, inactive
+- timestamps
+
+patients
+- id
+- health_center_id
+- first_name
+- middle_name nullable
+- last_name
+- birth_date
+- sex
+- contact_number
+- address
+- is_senior boolean
+- is_pregnant boolean
+- is_pwd boolean
+- medical_notes text nullable
+- emergency_contact_name nullable
+- emergency_contact_number nullable
+- timestamps
+
+referrals
+- id
+- referral_code unique
+- patient_id
+- referring_health_center_id
+- receiving_health_center_id
+- submitted_by_user_id
+- reviewed_by_user_id nullable
+- referral_reason text
+- clinical_urgency enum: emergency, urgent, routine
+- referral_type enum: emergency, specialist_consultation, follow_up, routine
+- status enum: submitted, under_review, approved, rejected, queued, completed, missed, archived
+- rejection_reason nullable
+- appointment_at nullable
+- reviewed_at nullable
+- completed_at nullable
+- timestamps
+
+queue_entries
+- id
+- referral_id
+- patient_id
+- queue_number
+- priority_level enum: priority_1_emergency, priority_2_vulnerable, priority_3_standard
+- priority_score integer
+- queue_status enum: waiting, called, served, missed, cancelled
+- queue_date
+- called_at nullable
+- served_at nullable
+- missed_at nullable
+- timestamps
+
+priority_rules
+- id
+- name
+- category enum: clinical_urgency, demographic, referral_type
+- condition_key
+- score_value
+- is_active boolean
+- timestamps
+
+system_settings
+- id
+- key unique
+- value text
+- description nullable
+- timestamps
+
+sms_logs
+- id
+- patient_id
+- referral_id nullable
+- queue_entry_id nullable
+- recipient_number
+- message text
+- trigger_type enum: approval, appointment_reminder, missed_referral, manual
+- provider_message_id nullable
+- status enum: pending, sent, failed
+- error_message nullable
+- sent_at nullable
+- timestamps
+
+audit_logs
+- id
+- user_id nullable
+- action
+- auditable_type nullable
+- auditable_id nullable
+- old_values json nullable
+- new_values json nullable
+- ip_address nullable
+- user_agent nullable
+- timestamps
+
+Optional survey/evaluation tables:
+- sus_responses
+- tam_responses
+- performance_metrics
+
+Core Referral Workflow
+----------------------
+1. Barangay staff logs in.
+2. Barangay staff registers or selects a patient.
+3. Barangay staff submits a digital referral form with:
+   - patient details
+   - referral reason
+   - clinical urgency
+   - referral type
+   - demographic flags such as senior citizen, pregnant, or PWD
+4. System stores the referral with status submitted.
+5. City staff receives the referral in the incoming referral queue.
+6. City staff reviews the referral.
+7. If rejected:
+   - status becomes rejected
+   - rejection reason is saved
+   - audit log is recorded
+8. If approved:
+   - status becomes approved
+   - rules-based priority score is computed
+   - queue entry is created
+   - queue number is assigned
+   - status becomes queued
+   - SMS approval alert is sent to the patient
+9. Patient can view referral and queue status using the SMS details.
+10. City staff marks the patient as served/completed, missed, or archived.
+11. Analytics dashboards update based on referral and queue records.
+
+Referral Status Lifecycle
+-------------------------
+submitted -> under_review -> approved -> queued -> completed
+submitted -> under_review -> rejected
+queued -> missed
+missed -> archived
+
+Keep status transitions strict. Do not allow completed referrals to return to active queue states unless an administrator explicitly reopens them with an audit log entry.
+
+Rules-Based Queue Priority Algorithm
+------------------------------------
+CareLink must not use machine learning or AI for priority assignment. Use deterministic rules and configurable weights.
+
+Suggested scoring categories:
+1. Clinical urgency
+   - emergency: 100 points
+   - urgent: 60 points
+   - routine: 20 points
+
+2. Demographic classification
+   - senior citizen: 25 points
+   - pregnant: 25 points
+   - PWD: 25 points
+   - no vulnerable classification: 0 points
+
+3. Referral type
+   - emergency: 50 points
+   - specialist consultation: 30 points
+   - follow-up: 15 points
+   - routine: 5 points
+
+Suggested priority tiers:
+- Priority 1 Emergency: score >= 100 or clinical_urgency = emergency
+- Priority 2 Vulnerable Group: score >= 50 or patient is senior, pregnant, or PWD
+- Priority 3 Standard Referral: all other approved referrals
+
+Queue ordering:
+1. Priority level ascending, with Priority 1 first.
+2. Higher priority score first.
+3. Earlier approval time first.
+
+Example pseudocode:
+
+score = clinical_urgency_points + demographic_points + referral_type_points
+
+if clinical_urgency == "emergency" or score >= 100:
+    priority_level = "priority_1_emergency"
+elif patient_is_senior or patient_is_pregnant or patient_is_pwd or score >= 50:
+    priority_level = "priority_2_vulnerable"
+else:
+    priority_level = "priority_3_standard"
+
+Module Build Order
+------------------
+Phase 1: Project Foundation
+1. Create a Node.js backend project.
+2. Create a Vite.js frontend project.
+3. Configure MySQL connection.
+4. Install and configure Tailwind CSS.
+5. Set up authentication.
+6. Add role-based middleware.
+7. Create base layouts for admin, barangay staff, city staff, and patient views.
+8. Add shared UI components for tables, forms, alerts, badges, and status indicators.
+
+Phase 2: Core Database and Models
+1. Create migrations for users, health centers, patients, referrals, queue entries, priority rules, SMS logs, system settings, and audit logs.
+2. Create backend models, repositories, or ORM mappings using Prisma, Sequelize, Knex, or another Node.js database layer.
+3. Add seeders for:
+   - default Super Admin
+   - Koronadal City Health Center
+   - sample barangay health centers
+   - default priority rules
+   - default SMS trigger settings
+4. Add authorization middleware and service-level checks for role-based data access.
+
+Phase 3: Super Admin Modules
+1. Admin dashboard with system counts and activity summary.
+2. User management:
+   - create user
+   - edit user
+   - disable user
+   - assign role
+   - assign health center
+3. Health center management:
+   - create health center
+   - edit health center
+   - activate/deactivate health center
+4. System configuration:
+   - priority scoring weights
+   - priority thresholds
+   - SMS trigger toggles
+5. Audit log viewer:
+   - filter by user
+   - filter by action
+   - filter by date
+
+Phase 4: Barangay Health Center Staff Modules
+1. Barangay dashboard:
+   - pending referrals
+   - recent referral statuses
+   - registered patients count
+2. Patient registration:
+   - demographic details
+   - contact number
+   - address
+   - vulnerable classification flags
+   - medical notes
+3. Patient records:
+   - search patients
+   - view patient profile
+   - update patient profile
+   - view referral history
+4. Digital referral form:
+   - select patient
+   - encode referral reason
+   - choose clinical urgency
+   - choose referral type
+   - submit to city health center
+5. Referral tracking:
+   - submitted
+   - under review
+   - approved
+   - rejected
+   - queued
+   - completed
+   - missed
+
+Phase 5: City Health Center Staff Modules
+1. City dashboard:
+   - incoming referrals
+   - active queue
+   - priority distribution
+   - daily completed referrals
+2. Referral receiving:
+   - list incoming referrals
+   - filter by barangay, status, urgency, and date
+3. Referral review:
+   - view referral details
+   - view patient record
+   - approve referral
+   - reject referral with reason
+4. Queue priority assignment:
+   - compute priority score on approval
+   - assign priority level
+   - generate queue number
+   - create queue entry
+5. Queue management:
+   - view active queue ordered by priority
+   - call next patient
+   - mark served
+   - mark missed
+   - cancel queue entry when necessary
+6. Referral history:
+   - view all processed referrals
+   - filter by outcome and date
+
+Phase 6: Patient Interface
+1. Create secure public tracking page.
+2. Allow lookup by referral code, queue code, or signed URL from SMS.
+3. Show:
+   - referral status
+   - queue number
+   - priority classification
+   - queue status
+   - appointment date/time when available
+4. Keep the interface mobile-first and low-bandwidth.
+
+Phase 7: SMS Notification Integration
+1. Add Semaphore API credentials to environment variables.
+2. Create SMS service class.
+3. Create queued SMS job.
+4. Log all SMS attempts in sms_logs.
+5. Implement approval SMS:
+   - sent when referral is approved and queue number is assigned
+   - include referral code, queue number, priority level, and tracking link
+6. Implement 24-hour appointment reminder:
+   - scheduled by node-cron or a background worker
+   - sent 24 hours before appointment_at
+7. Implement missed referral alert:
+   - sent when city staff marks queue entry as missed
+8. Add admin settings to enable or disable each trigger.
+
+Example SMS messages:
+- Approval: "CareLink: Your referral has been approved. Queue No: {queue_number}. Priority: {priority_level}. Track: {link}"
+- Reminder: "CareLink reminder: Your appointment is tomorrow at {time}. Please proceed to Koronadal City Health Center."
+- Missed: "CareLink: You missed your scheduled referral visit. Please contact your Barangay Health Center for assistance."
+
+Phase 8: Analytics and Reporting
+1. Referral volume report:
+   - total referrals by date range
+   - referrals by barangay health center
+   - referrals by status
+2. Queue performance report:
+   - active queue count
+   - average waiting time if timestamps are available
+   - priority distribution
+3. Completion report:
+   - completed referrals
+   - missed referrals
+   - completion rate
+4. SMS report:
+   - sent count
+   - failed count
+   - trigger type distribution
+5. Export support:
+   - CSV export first
+   - PDF export optional
+
+Security and Privacy Requirements
+---------------------------------
+1. Enforce authentication for all staff modules.
+2. Enforce role-based authorization through middleware and policies.
+3. Limit barangay staff access to patients and referrals from their assigned health center.
+4. Limit patient public pages to only the minimum required status data.
+5. Use signed URLs or secure lookup tokens for patient tracking links.
+6. Hash passwords using bcrypt or argon2.
+7. Validate all form inputs.
+8. Sanitize free-text display.
+9. Protect the API with appropriate CSRF protection for cookie sessions, strict CORS rules, rate limiting, and secure HTTP headers.
+10. Record important actions in audit_logs:
+    - login
+    - user creation/update/disable
+    - health center changes
+    - priority rule changes
+    - referral submission
+    - referral approval/rejection
+    - queue status changes
+    - SMS trigger configuration changes
+11. Keep API credentials in .env only.
+12. Never commit .env or production credentials.
+
+Validation Rules
+----------------
+Patient:
+- name fields required
+- birth date required and not in future
+- sex required
+- contact number required and must match Philippine mobile format where possible
+- address required
+
+Referral:
+- patient required
+- referral reason required
+- clinical urgency required
+- referral type required
+- receiving health center required
+
+Review:
+- approval requires appointment date/time if the workflow uses scheduled referrals
+- rejection requires rejection reason
+
+Priority rules:
+- score value must be numeric and non-negative
+- thresholds must be numeric and ordered logically
+
+Audit Logging Plan
+------------------
+Create a reusable audit helper or observer system. Log the actor, action, affected model, old values, new values, IP address, and user agent. Focus first on actions that affect access, referral outcomes, priority assignment, and queue status.
+
+Testing Plan
+------------
+Unit tests:
+1. Priority score calculation.
+2. Priority tier assignment.
+3. Referral status transitions.
+4. Role-based access policies.
+5. SMS message construction.
+
+Feature tests:
+1. Barangay staff can register patients.
+2. Barangay staff can submit referrals.
+3. City staff can approve referrals.
+4. City staff can reject referrals with reason.
+5. Approval creates queue entry.
+6. Approval sends or queues SMS notification.
+7. Patient can view public status using valid tracking link.
+8. Unauthorized users cannot access restricted modules.
+
+Integration tests:
+1. Full referral submission to queue assignment flow.
+2. SMS gateway success and failure handling.
+3. Scheduler sends 24-hour reminders.
+4. Missed referral action sends missed referral SMS.
+
+User acceptance testing:
+1. Super Admin performs user and health center management.
+2. Barangay staff completes patient registration and referral submission.
+3. City staff processes incoming referral and manages queue.
+4. Patient checks referral and queue status from SMS link.
+
+Evaluation support:
+1. System Usability Scale (SUS) questionnaire support can be implemented as a simple survey form or handled outside the system.
+2. TAM-aligned survey can capture perceived usefulness and perceived ease of use.
+3. Performance metrics should record response times for:
+   - referral submission
+   - priority score computation
+   - queue assignment
+   - SMS trigger latency
+
+Performance Considerations
+--------------------------
+1. Keep dashboards paginated.
+2. Add indexes to common filters:
+   - referrals.status
+   - referrals.referring_health_center_id
+   - referrals.receiving_health_center_id
+   - referrals.created_at
+   - queue_entries.priority_level
+   - queue_entries.queue_date
+   - queue_entries.queue_status
+   - patients.last_name
+   - patients.contact_number
+3. Run SMS sending through queues instead of blocking HTTP requests.
+4. Cache admin configuration settings if needed.
+5. Optimize patient-facing pages for mobile and slow connections.
+
+Suggested Sprint Plan
+---------------------
+Sprint 1: Foundation
+- Node.js API setup
+- Vite.js frontend setup
+- Authentication
+- Roles and middleware
+- Base layouts
+- Initial migrations
+- Seeders
+
+Sprint 2: Admin Setup
+- Super Admin dashboard
+- User management
+- Health center management
+- Priority rules settings
+- Audit log foundation
+
+Sprint 3: Barangay Workflow
+- Patient registration
+- Patient records
+- Digital referral form
+- Barangay referral tracking
+
+Sprint 4: City Referral Workflow
+- Incoming referral list
+- Referral review
+- Approval/rejection
+- Priority score computation
+- Queue entry creation
+
+Sprint 5: Queue and Patient Status
+- Queue management
+- Patient tracking page
+- Referral status view
+- Queue status view
+
+Sprint 6: SMS Automation
+- Semaphore integration
+- Approval SMS
+- Appointment reminder scheduler
+- Missed referral SMS
+- SMS logs and retry handling
+
+Sprint 7: Analytics and Reports
+- Referral reports
+- Queue reports
+- Completion reports
+- SMS reports
+- CSV export
+
+Sprint 8: Hardening and Evaluation
+- Security review
+- Policy tests
+- Performance metrics
+- SUS/TAM survey support if needed
+- UAT fixes
+- Deployment preparation
+
+Deployment Checklist
+--------------------
+1. Configure production .env.
+2. Set NODE_ENV=production.
+3. Disable debug logs and detailed error responses in production.
+4. Configure production database.
+5. Configure Semaphore credentials.
+6. Run migrations.
+7. Run seeders for default admin, health centers, and priority rules.
+8. Configure queue worker.
+9. Configure node-cron or the production scheduler.
+10. Configure HTTPS.
+11. Configure backend process management and frontend static hosting.
+12. Run tests.
+13. Verify login for all staff roles.
+14. Submit a test referral.
+15. Approve the test referral and confirm queue assignment.
+16. Confirm SMS logging and delivery.
+17. Confirm patient tracking link works.
+18. Confirm analytics update.
+19. Confirm audit logs are recorded.
+
+Known Scope Limits
+------------------
+1. CareLink only covers referrals from barangay health centers to the Koronadal City Health Center.
+2. It does not cover referrals to tertiary hospitals, private facilities, or other government institutions.
+3. It is not a full EMR system.
+4. It does not include diagnosis, prescription management, or clinical decision support.
+5. It does not use AI or machine learning for prioritization.
+6. SMS reliability depends on mobile network availability and the SMS provider.
+
+Minimum Viable Product Definition
+---------------------------------
+The MVP is complete when:
+1. Staff can log in by role.
+2. Super Admin can manage users and health centers.
+3. Barangay staff can register patients and submit referrals.
+4. City staff can approve or reject referrals.
+5. Approved referrals automatically receive priority scores and queue numbers.
+6. Patients receive approval SMS messages.
+7. Patients can view referral and queue status.
+8. City staff can mark referrals completed or missed.
+9. Basic analytics show referral counts, queue counts, priority distribution, completion rate, and SMS results.
+10. Audit logs capture major system actions.
+
+Recommended Build Principle
+---------------------------
+Build the system around the referral lifecycle first. Authentication, patient records, referral submission, review, priority scoring, queue assignment, and status tracking are the core. SMS automation, analytics, surveys, and advanced reports should build on top of that stable workflow.
