@@ -42,6 +42,12 @@ Thumbs.db
 coverage/
 .eslintcache
 
+# Python AI service
+ai/.venv/
+ai/**/__pycache__/
+ai/**/*.pyc
+.ai/
+
 # Archives / local packages
 *.rar
 *.zip

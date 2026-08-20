@@ -10,6 +10,9 @@ import {
   normalizeAppointmentAt,
   sortByPriority,
   stripUndefined,
+  addDaysToDateString,
+  anonymizePatientLabel,
+  formatDateInAppTimezone,
   todayDateString,
   toDateString,
   buildUpdateClause,
@@ -304,7 +307,8 @@ export async function listReferrals(filters = {}) {
 
   rows = await Promise.all(rows.map((r) => enrichReferral(r, { patientMap, centerMap, queueMap })));
   if (filters.status) rows = rows.filter((r) => r.status === filters.status);
-  return rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100);
+  // Return full live referral records (no artificial 100-row cap).
+  return rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 export async function getReferral(id) {
@@ -528,15 +532,7 @@ export async function cancelReferral(id) {
   return true;
 }
 
-export async function listTodayQueue() {
-  const today = todayDateString();
-  const [queues, referrals, patients, centers] = await Promise.all([
-    select(`SELECT * FROM ${TABLES.queueEntries} WHERE queue_date = $1`, [today]),
-    select(`SELECT * FROM ${TABLES.referrals}`),
-    select(`SELECT * FROM ${TABLES.patients}`),
-    select(`SELECT * FROM ${TABLES.healthCenters}`),
-  ]);
-
+function enrichQueueEntries(queues, { referrals, patients, centers }) {
   const referralMap = new Map(referrals.map((r) => [Number(r.id), r]));
   const patientMap = new Map(patients.map((p) => [Number(p.id), p]));
   const centerMap = new Map(centers.map((c) => [Number(c.id), c]));
@@ -544,26 +540,178 @@ export async function listTodayQueue() {
   return queues
     .map((entry) => {
       const referral = referralMap.get(Number(entry.referral_id));
-      const patient = patientMap.get(Number(entry.patient_id));
-      const center = referral ? centerMap.get(Number(referral.referring_health_center_id)) : null;
+      if (!referral) return null; // only show queue rows tied to real referral records
+      const patient = patientMap.get(Number(entry.patient_id))
+        || patientMap.get(Number(referral.patient_id));
+      const center = centerMap.get(Number(referral.referring_health_center_id));
+      const receiving = centerMap.get(Number(referral.receiving_health_center_id));
       return {
         ...entry,
         status: entry.queue_status,
         queue_status: entry.queue_status,
-        tracking_code: referral?.referral_code || null,
-        referral_code: referral?.referral_code,
-        referral_status: referral?.status,
+        tracking_code: referral.referral_code || null,
+        referral_code: referral.referral_code,
+        referral_status: referral.status,
+        referral_id: referral.id,
+        appointment_at: referral.appointment_at || null,
         patient_name: patient ? `${patient.first_name} ${patient.last_name}`.trim() : null,
         first_name: patient?.first_name,
         last_name: patient?.last_name,
         contact_number: patient?.contact_number,
-        referring_center_name: center?.name,
+        referring_center_name: center?.name || null,
+        receiving_center_name: receiving?.name || null,
       };
     })
-    .filter((entry) => !['cancelled', 'expired'].includes(entry.queue_status)
+    .filter(Boolean);
+}
+
+function resolveQueueDateWindow(filters = {}) {
+  const today = todayDateString();
+  const range = String(filters.range || 'today').toLowerCase();
+
+  if (range === 'all') {
+    return { range: 'all', fromDate: null, toDate: null };
+  }
+  if (range === 'active') {
+    // Matches Referral Records → Active (queued referrals still in line).
+    return { range: 'active', fromDate: null, toDate: null };
+  }
+  if (range === 'yesterday') {
+    const yesterday = addDaysToDateString(today, -1);
+    return { range, fromDate: yesterday, toDate: yesterday };
+  }
+  if (range === 'last_7_days') {
+    return { range, fromDate: addDaysToDateString(today, -6), toDate: today };
+  }
+  if (range === 'last_30_days') {
+    return { range, fromDate: addDaysToDateString(today, -29), toDate: today };
+  }
+  if (range === 'custom' && filters.date) {
+    const date = toDateString(filters.date) || String(filters.date).slice(0, 10);
+    return { range: 'custom', fromDate: date, toDate: date };
+  }
+  return { range: 'today', fromDate: today, toDate: today };
+}
+
+function queueDateKey(value) {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return formatDateInAppTimezone(date);
+}
+
+/** Live queue rows joined to real referral records. */
+export async function listQueueEntries(filters = {}) {
+  const window = resolveQueueDateWindow(filters);
+  const statusFilter = filters.status && String(filters.status).toLowerCase() !== 'all'
+    ? String(filters.status).toLowerCase()
+    : '';
+  const priorityFilter = filters.priority && String(filters.priority).toLowerCase() !== 'all'
+    ? String(filters.priority).toLowerCase()
+    : '';
+  const referralStatusFilter = filters.referral_status && String(filters.referral_status).toLowerCase() !== 'all'
+    ? String(filters.referral_status).toLowerCase()
+    : '';
+  const search = String(filters.q || '').trim();
+
+  const [allQueues, referrals, patients, centers] = await Promise.all([
+    select(`SELECT * FROM ${TABLES.queueEntries}`),
+    select(`SELECT * FROM ${TABLES.referrals}`),
+    select(`SELECT * FROM ${TABLES.patients}`),
+    select(`SELECT * FROM ${TABLES.healthCenters}`),
+  ]);
+
+  let rows = enrichQueueEntries(allQueues, { referrals, patients, centers });
+
+  if (window.range === 'active') {
+    rows = rows.filter((entry) => entry.referral_status === 'queued'
+      && ['waiting', 'called'].includes(entry.queue_status));
+  } else if (window.fromDate && window.toDate) {
+    const inWindow = rows.filter((entry) => {
+      const key = queueDateKey(entry.queue_date);
+      return key >= window.fromDate && key <= window.toDate;
+    });
+
+    if (window.range === 'today') {
+      // Keep today's board visible AND always include live queued referral records.
+      const activeQueued = rows.filter((entry) => entry.referral_status === 'queued'
+        && ['waiting', 'called'].includes(entry.queue_status));
+      const byId = new Map();
+      for (const entry of [...inWindow, ...activeQueued]) byId.set(Number(entry.id), entry);
+      rows = [...byId.values()];
+    } else {
+      rows = inWindow;
+    }
+  }
+
+  // Active "today" view hides cancelled/expired noise unless a status filter is set.
+  if ((window.range === 'today' || window.range === 'active') && !statusFilter && !referralStatusFilter) {
+    rows = rows.filter((entry) => !['cancelled', 'expired'].includes(entry.queue_status)
       && entry.referral_status !== 'archived'
-      && entry.referral_status !== 'expired')
-    .sort(sortByPriority);
+      && entry.referral_status !== 'expired'
+      && entry.referral_status !== 'rejected');
+  }
+
+  if (statusFilter) {
+    rows = rows.filter((entry) => String(entry.queue_status).toLowerCase() === statusFilter);
+  }
+  if (referralStatusFilter) {
+    rows = rows.filter((entry) => String(entry.referral_status).toLowerCase() === referralStatusFilter);
+  }
+  if (priorityFilter) {
+    rows = rows.filter((entry) => String(entry.priority_level).toLowerCase() === priorityFilter);
+  }
+  if (search) {
+    rows = rows.filter((entry) => matchesSearch(entry.patient_name, search)
+      || matchesSearch(entry.first_name, search)
+      || matchesSearch(entry.last_name, search)
+      || matchesSearch(entry.queue_number, search)
+      || matchesSearch(entry.referral_code, search)
+      || matchesSearch(entry.referring_center_name, search)
+      || matchesSearch(entry.receiving_center_name, search)
+      || matchesSearch(entry.contact_number, search)
+      || matchesSearch(entry.referral_status, search));
+  }
+
+  rows = rows.sort((a, b) => {
+    const activeA = a.referral_status === 'queued' ? 0 : 1;
+    const activeB = b.referral_status === 'queued' ? 0 : 1;
+    if (activeA !== activeB) return activeA - activeB;
+    const dateCmp = queueDateKey(b.queue_date).localeCompare(queueDateKey(a.queue_date));
+    if (dateCmp !== 0) return dateCmp;
+    return sortByPriority(a, b);
+  });
+
+  const counts = rows.reduce((acc, entry) => {
+    const key = entry.queue_status || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const referralCounts = rows.reduce((acc, entry) => {
+    const key = entry.referral_status || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    queue: rows,
+    meta: {
+      range: window.range,
+      from_date: window.fromDate,
+      to_date: window.toDate,
+      total: rows.length,
+      counts,
+      referral_counts: referralCounts,
+      data_source: 'supabase',
+      synced_with: 'referrals',
+    },
+  };
+}
+
+export async function listTodayQueue() {
+  const result = await listQueueEntries({ range: 'today' });
+  return result.queue;
 }
 
 export async function getQueueEntry(id) {
@@ -773,12 +921,36 @@ export async function listPatientSatisfactionSummary() {
 
 export async function getDashboardSummary(user) {
   const roleFilter = user.role === 'barangay_staff' ? user.health_center_id : null;
-  const [referrals, patients, queue, smsLogs, perf] = await Promise.all([
-    listReferrals(roleFilter ? { healthCenterId: roleFilter } : {}),
-    listPatients(roleFilter ? { healthCenterId: roleFilter } : {}),
+
+  // Always read full tables from the database (not listReferrals/listPatients which cap at 100).
+  const [referrals, patients, queue, smsLogs, perf, servedQueueRows] = await Promise.all([
+    roleFilter
+      ? select(
+        `SELECT r.*, hc_from.name AS referring_center_name, hc_to.name AS receiving_center_name
+         FROM ${TABLES.referrals} r
+         LEFT JOIN ${TABLES.healthCenters} hc_from ON hc_from.id = r.referring_health_center_id
+         LEFT JOIN ${TABLES.healthCenters} hc_to ON hc_to.id = r.receiving_health_center_id
+         WHERE r.referring_health_center_id = $1`,
+        [roleFilter],
+      )
+      : select(
+        `SELECT r.*, hc_from.name AS referring_center_name, hc_to.name AS receiving_center_name
+         FROM ${TABLES.referrals} r
+         LEFT JOIN ${TABLES.healthCenters} hc_from ON hc_from.id = r.referring_health_center_id
+         LEFT JOIN ${TABLES.healthCenters} hc_to ON hc_to.id = r.receiving_health_center_id`,
+      ),
+    roleFilter
+      ? select(`SELECT * FROM ${TABLES.patients} WHERE health_center_id = $1`, [roleFilter])
+      : select(`SELECT * FROM ${TABLES.patients}`),
     listTodayQueue(),
-    listSmsLogs(500),
-    select(`SELECT * FROM ${TABLES.performanceMetrics}`),
+    select(`SELECT status, trigger_type FROM ${TABLES.smsLogs}`),
+    select(`SELECT operation, duration_ms FROM ${TABLES.performanceMetrics}`),
+    select(
+      `SELECT created_at, served_at FROM ${TABLES.queueEntries}
+       WHERE served_at IS NOT NULL
+       ORDER BY served_at DESC
+       LIMIT 5000`,
+    ),
   ]);
 
   const today = todayDateString();
@@ -856,11 +1028,74 @@ export async function getDashboardSummary(user) {
     entry.max_ms = Math.max(entry.max_ms, row.duration_ms);
     perfMap.set(row.operation, entry);
   }
-  const performanceMetrics = [...perfMap.values()].map((entry) => ({
+  const latencyMetrics = [...perfMap.values()].map((entry) => ({
     operation: entry.operation,
     average_ms: Math.round((entry.total / entry.count) * 100) / 100,
     max_ms: entry.max_ms,
   })).sort((a, b) => a.operation.localeCompare(b.operation));
+
+  const completedReferrals = referrals.filter((r) => r.status === 'completed');
+  const missedReferrals = referrals.filter((r) => r.status === 'missed');
+  const queuedOrDone = referrals.filter((r) => ['queued', 'completed', 'missed', 'archived', 'expired'].includes(r.status));
+  const servedQueue = (servedQueueRows || []).filter((q) => q.served_at && q.created_at);
+  const avgWaitMinutes = servedQueue.length
+    ? Math.round(
+      (servedQueue.reduce((sum, q) => {
+        const wait = (new Date(q.served_at) - new Date(q.created_at)) / 60000;
+        return sum + (Number.isFinite(wait) && wait >= 0 ? wait : 0);
+      }, 0) / servedQueue.length) * 10,
+    ) / 10
+    : 0;
+  const smsSent = smsLogs.filter((s) => s.status === 'sent').length;
+  const smsFailed = smsLogs.filter((s) => s.status === 'failed').length;
+  const smsAttempts = smsSent + smsFailed;
+  const smsSuccessRate = smsAttempts ? Math.round((smsSent / smsAttempts) * 100) : 0;
+  const completionRate = referrals.length
+    ? Math.round((completedReferrals.length / referrals.length) * 100)
+    : 0;
+  const missedRate = queuedOrDone.length
+    ? Math.round((missedReferrals.length / queuedOrDone.length) * 100)
+    : 0;
+
+  const performanceMetrics = [
+    {
+      operation: 'completion_rate',
+      value: `${completionRate}%`,
+      detail: `${completedReferrals.length} of ${referrals.length} referrals completed`,
+    },
+    {
+      operation: 'average_wait_time',
+      value: `${avgWaitMinutes} min`,
+      detail: servedQueue.length ? `Based on ${servedQueue.length} served queue entries` : 'No served queue samples yet',
+    },
+    {
+      operation: 'missed_visit_rate',
+      value: `${missedRate}%`,
+      detail: `${missedReferrals.length} missed of ${queuedOrDone.length} queued visits`,
+    },
+    {
+      operation: 'sms_delivery_success',
+      value: `${smsSuccessRate}%`,
+      detail: smsAttempts ? `${smsSent} sent / ${smsFailed} failed` : 'No SMS attempts logged yet',
+    },
+    {
+      operation: 'pending_review_load',
+      value: String(operationalCounts.pending_review || 0),
+      detail: 'Referrals awaiting city staff review',
+    },
+    {
+      operation: 'waiting_queue_load',
+      value: String(operationalCounts.waiting_queue || 0),
+      detail: 'Patients currently waiting in today\'s queue',
+    },
+    ...latencyMetrics.slice(0, 4).map((row) => ({
+      operation: row.operation,
+      value: `${row.average_ms} ms`,
+      detail: `API latency · max ${row.max_ms} ms`,
+      average_ms: row.average_ms,
+      max_ms: row.max_ms,
+    })),
+  ];
 
   return {
     referralCounts,
@@ -873,6 +1108,13 @@ export async function getDashboardSummary(user) {
     urgencyDistribution,
     demographicDistribution,
     performanceMetrics,
+    data_source: 'supabase',
+    totals: {
+      referrals: referrals.length,
+      patients: patients.length,
+      sms_logs: smsLogs.length,
+      served_queue_samples: (servedQueueRows || []).length,
+    },
   };
 }
 
@@ -1218,5 +1460,299 @@ export async function getPublicTracking(code) {
     priority_score: referral.priority_score,
     queue_status: presentation.is_expired ? 'expired' : (presentation.is_cancelled ? 'cancelled' : referral.queue_status),
     queue_date: referral.queue_date,
+  };
+}
+
+/** Anonymous public board of everyone currently in the active queue. */
+export async function getPublicActiveQueueBoard() {
+  const { queue } = await listQueueEntries({ range: 'active' });
+  const today = todayDateString();
+
+  const activeRows = queue.filter((entry) => entry.referral_status === 'queued'
+    && ['waiting', 'called'].includes(entry.queue_status));
+
+  const byDate = new Map();
+  for (const entry of activeRows) {
+    const dateKey = queueDateKey(entry.queue_date) || today;
+    if (!byDate.has(dateKey)) byDate.set(dateKey, []);
+    byDate.get(dateKey).push(entry);
+  }
+
+  const entries = [];
+
+  for (const [queueDate, rows] of byDate.entries()) {
+    const sorted = [...rows].sort((a, b) => sortByPriority(a, b));
+    sorted.forEach((entry, index) => {
+      entries.push({
+        queue_date: queueDate,
+        queue_position: index + 1,
+        queue_number: entry.queue_number,
+        queue_status: entry.queue_status,
+        priority_level: entry.priority_level,
+        anonymous_name: anonymizePatientLabel(entry.first_name, entry.last_name),
+        receiving_center_name: entry.receiving_center_name || null,
+      });
+    });
+  }
+
+  entries.sort((a, b) => {
+    const dateCmp = String(b.queue_date).localeCompare(String(a.queue_date));
+    if (dateCmp !== 0) return dateCmp;
+    return a.queue_position - b.queue_position;
+  });
+
+  return {
+    queue_date: today,
+    updated_at: new Date().toISOString(),
+    total: entries.length,
+    entries,
+  };
+}
+
+function rankCounter(counter, total, limit = 10) {
+  return [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .filter(([label]) => label)
+    .map(([label, count]) => ({
+      label,
+      count,
+      share_percent: total ? Math.round((count / total) * 1000) / 10 : 0,
+    }));
+}
+
+function mean(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function stdev(values) {
+  if (values.length < 2) return 0;
+  const avg = mean(values);
+  return Math.sqrt(mean(values.map((value) => (value - avg) ** 2)));
+}
+
+function extractReasonThemes(reasons, limit = 8) {
+  const stopwords = new Set([
+    'a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'at', 'with',
+    'is', 'are', 'was', 'were', 'be', 'been', 'this', 'that', 'from', 'by',
+    'as', 'it', 'patient', 'referral', 'check', 'follow', 'up', 'due', 'needs',
+  ]);
+  const counter = new Map();
+  for (const reason of reasons) {
+    const words = String(reason).toLowerCase().match(/[a-zA-Z]{3,}/g) || [];
+    for (const word of words) {
+      if (stopwords.has(word)) continue;
+      counter.set(word, (counter.get(word) || 0) + 1);
+    }
+  }
+  const total = [...counter.values()].reduce((sum, value) => sum + value, 0) || 1;
+  return [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([theme, mentions]) => ({
+      theme,
+      mentions,
+      share_percent: Math.round((mentions / total) * 1000) / 10,
+    }));
+}
+
+function normalizeCityName(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Unknown city';
+  const compact = raw.replace(/\s+/g, ' ').trim().toLowerCase();
+  // CareLink operates in Koronadal City — merge naming variants.
+  if (
+    compact === 'koronadal'
+    || compact === 'koronadal city'
+    || compact === 'city of koronadal'
+    || compact === 'koronadal city, south cotabato'
+    || compact.startsWith('koronadal')
+  ) {
+    return 'Koronadal City';
+  }
+  return raw;
+}
+
+/** Live case intelligence from Supabase Postgres (same DB as CareLink). days=0 means all rows. */
+export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
+  const z = Number.isFinite(overloadZ) ? Math.min(Math.max(overloadZ, 0.5), 3) : 1;
+  const useWindow = Number.isFinite(days) && days > 0;
+  const windowDays = useWindow ? Math.min(Math.max(Math.floor(days), 1), 3650) : 0;
+
+  const rows = useWindow
+    ? await select(
+      `SELECT
+         r.id,
+         r.referral_reason,
+         r.clinical_urgency,
+         r.referral_type,
+         r.severity_level,
+         r.status,
+         r.created_at,
+         p.city AS patient_city,
+         hc_from.name AS referring_center,
+         hc_to.name AS receiving_center
+       FROM ${TABLES.referrals} r
+       JOIN ${TABLES.patients} p ON p.id = r.patient_id
+       JOIN ${TABLES.healthCenters} hc_from ON hc_from.id = r.referring_health_center_id
+       JOIN ${TABLES.healthCenters} hc_to ON hc_to.id = r.receiving_health_center_id
+       WHERE r.created_at >= NOW() - ($1 * INTERVAL '1 day')
+       ORDER BY r.created_at DESC`,
+      [windowDays],
+    )
+    : await select(
+      `SELECT
+         r.id,
+         r.referral_reason,
+         r.clinical_urgency,
+         r.referral_type,
+         r.severity_level,
+         r.status,
+         r.created_at,
+         p.city AS patient_city,
+         hc_from.name AS referring_center,
+         hc_to.name AS receiving_center
+       FROM ${TABLES.referrals} r
+       JOIN ${TABLES.patients} p ON p.id = r.patient_id
+       JOIN ${TABLES.healthCenters} hc_from ON hc_from.id = r.referring_health_center_id
+       JOIN ${TABLES.healthCenters} hc_to ON hc_to.id = r.receiving_health_center_id
+       ORDER BY r.created_at DESC`,
+    );
+
+  const total = rows.length;
+  const byReferring = new Map();
+  const byReceiving = new Map();
+  const byCity = new Map();
+  const byBarangay = new Map();
+  const byType = new Map();
+  const byUrgency = new Map();
+  const bySeverity = new Map();
+  const reasons = [];
+
+  const bump = (map, key) => map.set(key, (map.get(key) || 0) + 1);
+
+  for (const row of rows) {
+    const referring = row.referring_center || 'Unknown barangay';
+    const receiving = row.receiving_center || 'Unknown city center';
+    const city = normalizeCityName(row.patient_city);
+    bump(byReferring, referring);
+    bump(byReceiving, receiving);
+    bump(byCity, city);
+    bump(byBarangay, referring);
+    bump(byType, String(row.referral_type || 'unknown'));
+    bump(byUrgency, String(row.clinical_urgency || 'unknown'));
+    bump(bySeverity, String(row.severity_level || 'unknown'));
+    if (row.referral_reason) reasons.push(String(row.referral_reason));
+  }
+
+  const referringCounts = [...byReferring.values()];
+  const receivingCounts = [...byReceiving.values()];
+  const referringMean = mean(referringCounts);
+  const referringStd = stdev(referringCounts);
+  const receivingMean = mean(receivingCounts);
+  const receivingStd = stdev(receivingCounts);
+
+  const overloadedPlaces = [];
+  for (const [place, count] of byReferring.entries()) {
+    const threshold = referringMean + (z * referringStd);
+    if (count >= Math.max(threshold, referringMean ? referringMean * 1.5 : 1)) {
+      overloadedPlaces.push({
+        place,
+        place_type: 'barangay',
+        request_count: count,
+        share_percent: total ? Math.round((count / total) * 1000) / 10 : 0,
+        baseline_average: Math.round(referringMean * 10) / 10,
+        overload_score: Math.round((count / (referringMean || 1)) * 100) / 100,
+        reason: 'Above-average referral volume from this barangay',
+      });
+    }
+  }
+  for (const [place, count] of byReceiving.entries()) {
+    const threshold = receivingMean + (z * receivingStd);
+    if (count >= Math.max(threshold, receivingMean ? receivingMean * 1.35 : 1)) {
+      overloadedPlaces.push({
+        place,
+        place_type: 'city_center',
+        request_count: count,
+        share_percent: total ? Math.round((count / total) * 1000) / 10 : 0,
+        baseline_average: Math.round(receivingMean * 10) / 10,
+        overload_score: Math.round((count / (receivingMean || 1)) * 100) / 100,
+        reason: 'Receiving too many referral requests relative to other centers',
+      });
+    }
+  }
+  overloadedPlaces.sort((a, b) => b.request_count - a.request_count);
+
+  const hotspots = {
+    by_barangay: rankCounter(byBarangay, total),
+    by_city: rankCounter(byCity, total),
+    by_referring_center: rankCounter(byReferring, total),
+    by_receiving_center: rankCounter(byReceiving, total),
+  };
+  const mostCases = {
+    by_referral_type: rankCounter(byType, total),
+    by_clinical_urgency: rankCounter(byUrgency, total),
+    by_severity: rankCounter(bySeverity, total),
+    reason_themes: extractReasonThemes(reasons),
+  };
+
+  const topPlace = hotspots.by_barangay[0]?.label || 'N/A';
+  const topCase = mostCases.by_referral_type[0]?.label || 'N/A';
+  const topUrgency = mostCases.by_clinical_urgency[0]?.label || 'N/A';
+  const overloadNames = overloadedPlaces.slice(0, 3).map((row) => row.place);
+
+  const narrative = [
+    `Across ${total} referral cases, the highest case concentration is in ${topPlace}.`,
+    `The most common case type is ${String(topCase).replaceAll('_', ' ')} with ${topUrgency} clinical urgency dominating volume.`,
+  ];
+  if (overloadNames.length) {
+    narrative.push(`Places with too many requests: ${overloadNames.join(', ')}.`);
+  } else {
+    narrative.push('No place currently exceeds the overload threshold.');
+  }
+  if (mostCases.reason_themes.length) {
+    narrative.push(
+      `Frequent case themes in referral reasons: ${mostCases.reason_themes.slice(0, 5).map((row) => row.theme).join(', ')}.`,
+    );
+  }
+
+  const recommendations = [];
+  if (hotspots.by_barangay[0]) {
+    const top = hotspots.by_barangay[0];
+    recommendations.push(
+      `Prioritize outreach and staffing support for ${top.label} (${top.count} cases, ${top.share_percent}% of volume).`,
+    );
+  }
+  for (const place of overloadedPlaces.slice(0, 2)) {
+    recommendations.push(
+      `Throttle or redistribute load from ${place.place} (${place.request_count} requests, overload score ${place.overload_score}x).`,
+    );
+  }
+  if (mostCases.by_clinical_urgency[0]) {
+    const urgency = mostCases.by_clinical_urgency[0];
+    recommendations.push(
+      `Prepare protocols for ${urgency.label} cases — currently ${urgency.share_percent}% of referrals.`,
+    );
+  }
+  if (mostCases.reason_themes[0]) {
+    recommendations.push(`Review care pathways related to recurring theme: ${mostCases.reason_themes[0].theme}.`);
+  }
+
+  return {
+    generated_at: new Date().toISOString(),
+    model: 'carelink-case-intelligence-v1',
+    runtime: 'supabase-postgres',
+    source: 'database',
+    data_source: 'supabase',
+    window_days: useWindow ? windowDays : null,
+    scope: useWindow ? `last_${windowDays}_days` : 'all_referrals',
+    total_cases: total,
+    summary: narrative.join(' '),
+    hotspots,
+    overloaded_places: overloadedPlaces,
+    most_cases: mostCases,
+    recommendations: recommendations.length
+      ? recommendations
+      : ['Not enough referral data yet for actionable AI recommendations.'],
   };
 }

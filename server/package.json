@@ -7,6 +7,7 @@
   "scripts": {
     "db:migrate": "node scripts/migrateSupabase.js",
     "db:seed": "node scripts/seedSupabase.js",
+    "db:seed:clinic": "node scripts/seedClinicDataset.js",
     "dev": "nodemon src/index.js",
     "start": "node src/index.js"
   },

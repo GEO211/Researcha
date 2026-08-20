@@ -22,6 +22,15 @@ export function todayDateString() {
   return formatDateInAppTimezone(new Date());
 }
 
+/** Shift a YYYY-MM-DD string by N calendar days (timezone-safe via noon UTC). */
+export function addDaysToDateString(dateStr, days) {
+  const [year, month, day] = String(dateStr).split('-').map(Number);
+  if (!year || !month || !day) return dateStr;
+  const dt = new Date(Date.UTC(year, month - 1, day, 12));
+  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+  return dt.toISOString().slice(0, 10);
+}
+
 export function extractReferralCodeDate(referralCode) {
   const match = referralCode?.match(/^CL-(\d{4})(\d{2})(\d{2})-/);
   if (!match) return null;
@@ -70,6 +79,17 @@ export function sortByPriority(a, b) {
 export function matchesSearch(text, q) {
   if (!q) return true;
   return String(text || '').toLowerCase().includes(String(q).toLowerCase());
+}
+
+/** Public display label: geodev → g****v, Leo Santiago → l********o */
+export function anonymizePatientLabel(firstName, lastName) {
+  const compact = `${String(firstName || '').trim()}${String(lastName || '').trim()}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  if (!compact) return '—';
+  if (compact.length === 1) return `${compact[0]}*`;
+  if (compact.length === 2) return `${compact[0]}*${compact[1]}`;
+  return `${compact[0]}${'*'.repeat(compact.length - 2)}${compact[compact.length - 1]}`;
 }
 
 export function stripUndefined(obj) {

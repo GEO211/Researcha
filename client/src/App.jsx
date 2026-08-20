@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Evaluation from './pages/Evaluation';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
+import PublicQueueBoard from './pages/PublicQueueBoard';
 import Patients from './pages/Patients';
 import Profile from './pages/Profile';
 import Queue from './pages/Queue';
@@ -16,8 +17,9 @@ import Tracking from './pages/Tracking';
 
 function App() {
   const [session, setSession] = useState(getStoredSession());
-  const pathTrackingCode = window.location.pathname.startsWith('/track/')
-    ? decodeURIComponent(window.location.pathname.replace('/track/', '').split('/')[0])
+  const [publicPath, setPublicPath] = useState(() => window.location.pathname);
+  const pathTrackingCode = publicPath.startsWith('/track/')
+    ? decodeURIComponent(publicPath.replace('/track/', '').split('/')[0])
     : '';
   const [activeTab, setActiveTab] = useState(pathTrackingCode ? 'tracking' : 'dashboard');
   const [summary, setSummary] = useState({});
@@ -109,6 +111,28 @@ function App() {
   }, [canManage, canReview, patientFilters, referralFilters, session]);
 
   useEffect(() => {
+    function handlePopState() {
+      setPublicPath(window.location.pathname);
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  function navigatePublic(path) {
+    if (path.includes('#')) {
+      const [pathname, hash] = path.split('#');
+      window.history.pushState(null, '', pathname || '/');
+      setPublicPath(pathname || '/');
+      window.setTimeout(() => {
+        document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth' });
+      }, 0);
+      return;
+    }
+    window.history.pushState(null, '', path);
+    setPublicPath(path);
+  }
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       loadData();
     }, 0);
@@ -143,10 +167,14 @@ function App() {
     if (authView === 'login') {
       return <Login onLogin={setSession} onBack={() => setAuthView('landing')} />;
     }
+    if (publicPath === '/live-queue') {
+      return <PublicQueueBoard onNavigate={navigatePublic} />;
+    }
     return (
       <Landing
         onLogin={() => setAuthView('login')}
         initialTrackingCode={pathTrackingCode}
+        onNavigate={navigatePublic}
       />
     );
   }
@@ -286,7 +314,7 @@ function App() {
               onRefresh={loadData}
             />
           ) : null}
-          {activeTab === 'queue' && canReview ? <Queue key="queue" queue={queue} onRefresh={loadData} /> : null}
+          {activeTab === 'queue' && canReview ? <Queue key="queue" onRefresh={loadData} /> : null}
           {activeTab === 'analytics' && canReview ? <Analytics key="analytics" analytics={analytics} /> : null}
           {activeTab === 'tracking' ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
           {activeTab === 'evaluation' ? <Evaluation key="evaluation" evaluationData={evaluationData} canReview={canReview} session={session} onRefresh={loadData} /> : null}

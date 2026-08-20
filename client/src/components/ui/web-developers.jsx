@@ -59,9 +59,9 @@ export function WebDevelopers() {
                 our project team
               </span>
             </h2>
-            <p className="mx-auto mt-6 max-w-2xl text-base text-slate-600 sm:text-lg">
+            {/* <p className="mx-auto mt-6 max-w-2xl text-base text-slate-600 sm:text-lg">
               GEO developed the system. MIKO and LOUMER contributed to the research paper and documentation.
-            </p>
+            </p> */}
           </>
         )}
       >

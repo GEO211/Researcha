@@ -1,4 +1,5 @@
 export * from './primitives';
+export { SearchableSelect, toSearchableOptions } from './searchable-select';
 export { GlowCard } from './spotlight-card';
 export { Button, buttonVariants } from './button';
 export {
@@ -21,7 +22,8 @@ export {
   CinematicEnter,
   useHeroReplayKey,
 } from './shape-landing-hero';
-export { PublicTrackingSection } from './public-tracking';
+export { PublicTrackingSection, PublicTrackingPanel } from './public-tracking';
+export { PublicAdSidebar, LIVE_QUEUE_AD_SLOTS } from './public-ad-sidebar';
 export { ContainerScroll } from './container-scroll-animation';
 export { WebDevelopers } from './web-developers';
 export { CountUp } from './count-up';

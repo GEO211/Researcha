@@ -20,7 +20,25 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 8h
+      - key: AI_API_URL
+        sync: false
       - key: FIREBASE_CLIENT_EMAIL
         sync: false
       - key: FIREBASE_PRIVATE_KEY
+        sync: false
+
+  - type: web
+    name: carelink-ai
+    runtime: python
+    rootDir: ai
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: CLIENT_ORIGIN
+        value: https://carelink-bay.vercel.app
+      - key: DATABASE_URL
         sync: false

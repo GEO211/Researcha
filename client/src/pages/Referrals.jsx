@@ -30,7 +30,9 @@ import {
   PageStack,
   ActionButton,
   PrimaryButton,
+  SearchableSelect,
   SelectInput,
+  toSearchableOptions,
   StatusBadge,
   FloatingActionMenu,
   TableBody,
@@ -51,6 +53,51 @@ const initialReferral = {
   referral_type: 'routine',
   severity_level: 'moderate',
 };
+
+const CLINICAL_URGENCY_OPTIONS = [
+  { value: 'routine', label: 'Routine' },
+  { value: 'urgent', label: 'Urgent' },
+  { value: 'emergency', label: 'Emergency' },
+];
+
+const REFERRAL_TYPE_OPTIONS = [
+  { value: 'routine', label: 'Routine' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'specialist_consultation', label: 'Specialist consultation' },
+  { value: 'emergency', label: 'Emergency' },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+];
+
+const REFERRAL_STATUS_FILTER_OPTIONS = [
+  { value: '', label: 'Any status' },
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'under_review', label: 'Under review' },
+  { value: 'queued', label: 'Queued' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'missed', label: 'Missed' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'archived', label: 'Cancelled' },
+  { value: 'expired', label: 'Expired' },
+];
+
+const REFERRAL_PRIORITY_FILTER_OPTIONS = [
+  { value: '', label: 'Any priority' },
+  { value: 'priority_1_emergency', label: 'Priority 1 Emergency' },
+  { value: 'priority_2_vulnerable', label: 'Priority 2 Vulnerable' },
+  { value: 'priority_3_standard', label: 'Priority 3 Standard' },
+];
+
+const clinicalUrgencyOptions = toSearchableOptions(CLINICAL_URGENCY_OPTIONS);
+const referralTypeOptions = toSearchableOptions(REFERRAL_TYPE_OPTIONS);
+const severityOptions = toSearchableOptions(SEVERITY_OPTIONS);
+const referralStatusFilterOptions = toSearchableOptions(REFERRAL_STATUS_FILTER_OPTIONS);
+const referralPriorityFilterOptions = toSearchableOptions(REFERRAL_PRIORITY_FILTER_OPTIONS);
 
 const initialQuickPatient = {
   first_name: '',
@@ -227,7 +274,7 @@ function WorkflowGuide({ canReview }) {
 }
 
 export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, user, onRefresh }) {
-  const [activeCategory, setActiveCategory] = useState(canReview ? 'records' : 'new');
+  const [activeCategory, setActiveCategory] = useState('new');
   const [recordsTab, setRecordsTab] = useState('list');
   const [statusGroup, setStatusGroup] = useState(canReview ? 'pending' : 'all');
 
@@ -420,6 +467,28 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
   const [registeringPatient, setRegisteringPatient] = useState(false);
   const receivingCenters = healthCenters.filter((center) => center.type === 'city' && center.status === 'active');
   const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
+  const patientOptions = useMemo(
+    () => patients.map((patient) => {
+      const fullName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
+      const hintParts = [patient.contact_number, patient.city, patient.health_center_name].filter(Boolean);
+      return {
+        value: String(patient.id),
+        label: fullName,
+        hint: hintParts.join(' · ') || 'No contact on file',
+        searchText: [fullName, patient.contact_number, patient.city, patient.health_center_name, patient.email].join(' '),
+      };
+    }),
+    [patients],
+  );
+  const receivingCenterOptions = useMemo(
+    () => receivingCenters.map((center) => ({
+      value: String(center.id),
+      label: center.name,
+      hint: [center.city, center.address].filter(Boolean).join(' · ') || 'City receiving center',
+      searchText: [center.name, center.city, center.address, center.province].join(' '),
+    })),
+    [receivingCenters],
+  );
   const selectedPatient = patients.find((patient) => String(patient.id) === String(form.patient_id));
   const patientContact = patientMode === 'new' ? quickPatient.contact_number : selectedPatient?.contact_number;
   const canSubmitReferral = form.patient_id && form.receiving_health_center_id && form.referral_reason.trim() && patientContact;
@@ -567,14 +636,15 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                 {patientMode === 'existing' ? (
                   <div className="space-y-4">
                     <Field label="Patient">
-                      <SelectInput value={form.patient_id} onChange={(event) => setForm({ ...form, patient_id: event.target.value })} required>
-                        <option value="">Select patient</option>
-                        {patients.map((patient) => (
-                          <option key={patient.id} value={patient.id}>
-                            {patient.first_name} {patient.last_name}
-                          </option>
-                        ))}
-                      </SelectInput>
+                      <SearchableSelect
+                        value={form.patient_id}
+                        onChange={(nextValue) => setForm({ ...form, patient_id: nextValue })}
+                        options={patientOptions}
+                        placeholder="Select patient"
+                        searchPlaceholder="Search name or mobile number…"
+                        emptyMessage="No patients match your search"
+                        required
+                      />
                       {selectedPatient && (
                         <p className="mt-1.5 text-xs text-slate-500">
                           {selectedPatient.contact_number
@@ -584,12 +654,15 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                       )}
                     </Field>
                     <Field label="Receiving center">
-                      <SelectInput value={form.receiving_health_center_id} onChange={(event) => setForm({ ...form, receiving_health_center_id: event.target.value })} required>
-                        <option value="">Select center</option>
-                        {receivingCenters.map((center) => (
-                          <option key={center.id} value={center.id}>{center.name}</option>
-                        ))}
-                      </SelectInput>
+                      <SearchableSelect
+                        value={form.receiving_health_center_id}
+                        onChange={(nextValue) => setForm({ ...form, receiving_health_center_id: nextValue })}
+                        options={receivingCenterOptions}
+                        placeholder="Select center"
+                        searchPlaceholder="Search center name or city…"
+                        emptyMessage="No centers match your search"
+                        required
+                      />
                     </Field>
                   </div>
                 ) : (
@@ -665,12 +738,15 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
 
                 {patientMode === 'existing' ? null : (
                   <Field label="Receiving center">
-                    <SelectInput value={form.receiving_health_center_id} onChange={(event) => setForm({ ...form, receiving_health_center_id: event.target.value })} required>
-                      <option value="">Select center</option>
-                      {receivingCenters.map((center) => (
-                        <option key={center.id} value={center.id}>{center.name}</option>
-                      ))}
-                    </SelectInput>
+                    <SearchableSelect
+                      value={form.receiving_health_center_id}
+                      onChange={(nextValue) => setForm({ ...form, receiving_health_center_id: nextValue })}
+                      options={receivingCenterOptions}
+                      placeholder="Select center"
+                      searchPlaceholder="Search center name or city…"
+                      emptyMessage="No centers match your search"
+                      required
+                    />
                   </Field>
                 )}
 
@@ -683,27 +759,31 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Classification</p>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <Field label="Clinical urgency">
-                    <SelectInput value={form.clinical_urgency} onChange={(event) => setForm({ ...form, clinical_urgency: event.target.value })}>
-                      <option value="routine">Routine</option>
-                      <option value="urgent">Urgent</option>
-                      <option value="emergency">Emergency</option>
-                    </SelectInput>
+                    <SearchableSelect
+                      value={form.clinical_urgency}
+                      onChange={(nextValue) => setForm({ ...form, clinical_urgency: nextValue })}
+                      options={clinicalUrgencyOptions}
+                      placeholder="Select urgency"
+                      searchPlaceholder="Search urgency…"
+                    />
                   </Field>
                   <Field label="Referral type">
-                    <SelectInput value={form.referral_type} onChange={(event) => setForm({ ...form, referral_type: event.target.value })}>
-                      <option value="routine">Routine</option>
-                      <option value="follow_up">Follow-up</option>
-                      <option value="specialist_consultation">Specialist consultation</option>
-                      <option value="emergency">Emergency</option>
-                    </SelectInput>
+                    <SearchableSelect
+                      value={form.referral_type}
+                      onChange={(nextValue) => setForm({ ...form, referral_type: nextValue })}
+                      options={referralTypeOptions}
+                      placeholder="Select type"
+                      searchPlaceholder="Search referral type…"
+                    />
                   </Field>
                   <Field label="Severity">
-                    <SelectInput value={form.severity_level} onChange={(event) => setForm({ ...form, severity_level: event.target.value })}>
-                      <option value="low">Low</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="high">High</option>
-                      <option value="critical">Critical</option>
-                    </SelectInput>
+                    <SearchableSelect
+                      value={form.severity_level}
+                      onChange={(nextValue) => setForm({ ...form, severity_level: nextValue })}
+                      options={severityOptions}
+                      placeholder="Select severity"
+                      searchPlaceholder="Search severity…"
+                    />
                   </Field>
                 </div>
               </div>
@@ -898,26 +978,23 @@ function ReferralFilters({ filters, setFilters }) {
           </label>
           <label className="block min-w-0">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status</span>
-            <SelectInput value={filters.status} onChange={(event) => updateFilter('status', event.target.value)}>
-              <option value="">Any status</option>
-              <option value="submitted">Submitted</option>
-              <option value="under_review">Under review</option>
-              <option value="queued">Queued</option>
-              <option value="completed">Completed</option>
-              <option value="missed">Missed</option>
-              <option value="rejected">Rejected</option>
-              <option value="archived">Cancelled</option>
-              <option value="expired">Expired</option>
-            </SelectInput>
+            <SearchableSelect
+              value={filters.status}
+              onChange={(nextValue) => updateFilter('status', nextValue)}
+              options={referralStatusFilterOptions}
+              placeholder="Any status"
+              searchPlaceholder="Search status…"
+            />
           </label>
           <label className="block min-w-0">
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Priority</span>
-            <SelectInput value={filters.priority_level} onChange={(event) => updateFilter('priority_level', event.target.value)}>
-              <option value="">Any priority</option>
-              <option value="priority_1_emergency">Priority 1 Emergency</option>
-              <option value="priority_2_vulnerable">Priority 2 Vulnerable</option>
-              <option value="priority_3_standard">Priority 3 Standard</option>
-            </SelectInput>
+            <SearchableSelect
+              value={filters.priority_level}
+              onChange={(nextValue) => updateFilter('priority_level', nextValue)}
+              options={referralPriorityFilterOptions}
+              placeholder="Any priority"
+              searchPlaceholder="Search priority…"
+            />
           </label>
         </div>
         {hasFilters ? (

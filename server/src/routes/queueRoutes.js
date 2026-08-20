@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { callQueueEntry, getPatient, getQueueEntry, getReferral, listTodayQueue } from '../lib/supabase/store.js';
+import {
+  callQueueEntry,
+  getPatient,
+  getQueueEntry,
+  getReferral,
+  listQueueEntries,
+  listTodayQueue,
+} from '../lib/supabase/store.js';
 import { queueCallCooldownSeconds } from '../lib/supabase/helpers.js';
 import { audit } from '../services/auditService.js';
 import { callEmailMessage, callEmailSubject, sendEmail } from '../services/emailService.js';
@@ -8,10 +15,39 @@ import { callMessage, resolvePatientDisplayName, sendSms } from '../services/sms
 
 const router = Router();
 
-router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (req, res, next) => {
   try {
-    const queue = await listTodayQueue();
-    res.json({ queue });
+    const hasFilters = Boolean(
+      req.query.range
+      || req.query.date
+      || req.query.status
+      || req.query.priority
+      || req.query.referral_status
+      || req.query.q,
+    );
+
+    if (!hasFilters) {
+      const queue = await listTodayQueue();
+      return res.json({
+        queue,
+        meta: {
+          range: 'today',
+          total: queue.length,
+          data_source: 'supabase',
+          synced_with: 'referrals',
+        },
+      });
+    }
+
+    const result = await listQueueEntries({
+      range: req.query.range,
+      date: req.query.date,
+      status: req.query.status,
+      priority: req.query.priority,
+      referral_status: req.query.referral_status,
+      q: req.query.q,
+    });
+    return res.json(result);
   } catch (error) {
     next(error);
   }

@@ -246,6 +246,233 @@ function CinematicHighlight({ item, index }) {
   );
 }
 
+export function PublicTrackingPanel({
+  code,
+  setCode,
+  tracking,
+  trackError,
+  trackResult,
+  onLookup,
+  compact = false,
+  title = 'Track referral',
+  subtitle = 'Yours or someone else\'s — code from SMS or slip',
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-[1.65rem] border border-white/70 bg-white/80 shadow-[0_24px_64px_rgba(14,116,144,0.1)] backdrop-blur-xl">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-slate-900/[0.03] to-transparent" />
+
+      <div className="relative border-b border-slate-100/80 px-4 py-4 sm:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-gradient-to-br from-cyan-600 to-teal-600 p-2.5 text-white shadow-lg shadow-cyan-600/25">
+              <HeartPulse className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">{title}</p>
+              <p className="text-[11px] text-slate-500">{subtitle}</p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-50/90 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            Live
+          </span>
+        </div>
+      </div>
+
+      <div className="relative px-4 py-4 sm:px-5 sm:py-5">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onLookup(code);
+          }}
+          className="relative"
+        >
+          <div className="relative flex flex-col gap-2 sm:flex-row">
+            <div className="relative min-w-0 flex-1 overflow-hidden rounded-xl">
+              {!trackResult && !tracking ? (
+                <MotionDiv
+                  aria-hidden
+                  animate={{ x: ['-120%', '220%'] }}
+                  transition={{ duration: 2.8, repeat: Number.POSITIVE_INFINITY, ease: 'linear', repeatDelay: 1.2 }}
+                  className="pointer-events-none absolute inset-y-0 z-10 w-1/2 bg-gradient-to-r from-transparent via-cyan-400/15 to-transparent"
+                />
+              ) : null}
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 z-20 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <TextInput
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                placeholder="e.g. CL-2026-XXXX"
+                required
+                className="relative border-slate-200/80 bg-white/90 py-2.5 pl-10 text-sm shadow-inner"
+              />
+            </div>
+            <PrimaryButton
+              disabled={tracking}
+              className="shrink-0 bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2.5 text-sm shadow-md shadow-cyan-600/20 hover:from-cyan-700 hover:to-teal-700"
+            >
+              {tracking ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ...
+                </span>
+              ) : (
+                'Track'
+              )}
+            </PrimaryButton>
+          </div>
+        </form>
+
+        <p className="mt-2.5 text-[11px] leading-snug text-slate-500">
+          Enter any valid tracking code — family members can check on behalf of a patient.
+        </p>
+
+        <AnimatePresence mode="wait">
+          {trackError ? (
+            <MotionDiv
+              key="track-error"
+              initial={{ opacity: 0, scale: 0.96, y: 8, filter: 'blur(4px)' }}
+              animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, scale: 0.96, filter: 'blur(4px)' }}
+              transition={{ duration: 0.35, ease: easeOut }}
+              className="mt-3 rounded-xl border border-red-100 bg-red-50/90 p-3 text-xs text-red-700"
+            >
+              {trackError}
+            </MotionDiv>
+          ) : null}
+        </AnimatePresence>
+
+        <AnimatePresence mode="wait">
+          {trackResult ? (
+            <MotionDiv
+              key={trackResult.tracking_code}
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.45, ease: easeOut }}
+              className={cn('mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md', compact && 'max-h-[28rem] overflow-y-auto')}
+            >
+              <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-r from-cyan-50/90 via-white to-teal-50/50 px-4 py-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-mono text-sm font-bold tracking-tight text-slate-950">
+                    {trackResult.tracking_code}
+                  </h3>
+                  <StatusBadge value={trackResult.display_status || trackResult.status} />
+                </div>
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <Sparkles className="h-3 w-3 text-cyan-600" />
+                  {trackResult.status_subtitle || 'Referral found'}
+                </p>
+              </div>
+
+              {trackResult.status_message ? (
+                <div className={cn('border-b px-4 py-2.5 text-xs', trackingStatusBannerClass(trackResult))}>
+                  {trackResult.status_message}
+                </div>
+              ) : null}
+
+              <MotionStagger
+                className={cn('grid gap-2 p-3', compact ? 'grid-cols-1' : 'sm:grid-cols-2')}
+                stagger={0.06}
+                delayChildren={0.15}
+              >
+                {[
+                  { icon: HeartPulse, label: 'Patient', value: trackResult.patient_name },
+                  { icon: Shield, label: 'Receiving center', value: trackResult.receiving_center_name },
+                  {
+                    icon: CalendarClock,
+                    label: 'Appointment',
+                    value: trackResult.appointment_time
+                      ? new Date(trackResult.appointment_time).toLocaleString()
+                      : 'Not scheduled',
+                  },
+                  {
+                    icon: Bell,
+                    label: 'Queue number',
+                    value: trackingQueueLabel(trackResult),
+                  },
+                  {
+                    icon: Activity,
+                    label: 'Queue position',
+                    value: trackResult.queue_position ? `#${trackResult.queue_position} in line` : 'Not in active queue',
+                  },
+                  {
+                    icon: Shield,
+                    label: 'Priority',
+                    value: trackResult.priority_level
+                      ? String(trackResult.priority_level).replaceAll('_', ' ')
+                      : 'Not assigned',
+                  },
+                ].map((row) => {
+                  const DetailIcon = row.icon;
+                  return (
+                    <MotionItem key={row.label} variant={popUp}>
+                      <div className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+                        <div className="rounded-lg bg-white p-1.5 text-cyan-700 shadow-sm ring-1 ring-slate-200/60">
+                          <DetailIcon className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.label}</p>
+                          <p className="mt-0.5 text-xs font-semibold text-slate-900">{row.value}</p>
+                        </div>
+                      </div>
+                    </MotionItem>
+                  );
+                })}
+              </MotionStagger>
+
+              <div className="px-3 pb-3">
+                <TrackingProgress
+                  status={trackResult.display_status || trackResult.status}
+                  result={trackResult}
+                />
+              </div>
+            </MotionDiv>
+          ) : (
+            <MotionDiv
+              key="track-placeholder"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="mt-4"
+            >
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Preview</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Status', icon: Activity },
+                  { label: 'Queue', icon: Bell },
+                  { label: 'Appt', icon: CalendarClock },
+                ].map((item, index) => {
+                  const PlaceholderIcon = item.icon;
+                  return (
+                    <MotionDiv
+                      key={item.label}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{
+                        duration: 2.2,
+                        repeat: Number.POSITIVE_INFINITY,
+                        delay: index * 0.25,
+                        ease: 'easeInOut',
+                      }}
+                      className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-2 py-2.5 text-center"
+                    >
+                      <PlaceholderIcon className="mx-auto h-3.5 w-3.5 text-slate-300" />
+                      <p className="mt-1 text-[10px] font-medium text-slate-400">{item.label}</p>
+                    </MotionDiv>
+                  );
+                })}
+              </div>
+            </MotionDiv>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
 export function PublicTrackingSection({
   code,
   setCode,
@@ -340,226 +567,16 @@ export function PublicTrackingSection({
             className="lg:sticky lg:top-[calc(var(--header-height,4.5rem)+1.5rem)] lg:self-start"
           >
             <div className="pointer-events-none absolute -inset-1 rounded-[1.85rem] bg-gradient-to-br from-cyan-400/30 via-white/10 to-teal-400/25 blur-md" />
-
-            <div className="relative overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/75 shadow-[0_32px_80px_rgba(14,116,144,0.12)] backdrop-blur-2xl">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-slate-900/[0.03] to-transparent" />
-
-              <div className="relative border-b border-slate-100/80 px-5 py-4 sm:px-6 sm:py-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-xl bg-gradient-to-br from-cyan-600 to-teal-600 p-2.5 text-white shadow-lg shadow-cyan-600/25">
-                      <HeartPulse className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">Track your referral</p>
-                      <p className="text-[11px] text-slate-500">Code from SMS or referral slip</p>
-                    </div>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-emerald-50/90 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-                    <span className="relative flex h-2 w-2">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                    </span>
-                    Live
-                  </span>
-                </div>
-              </div>
-
-              <div className="relative px-5 py-4 sm:px-6 sm:py-5">
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    onLookup(code);
-                  }}
-                  className="relative"
-                >
-                  <div className="relative flex gap-2">
-                    <div className="relative min-w-0 flex-1 overflow-hidden rounded-xl">
-                      {!trackResult && !tracking ? (
-                        <MotionDiv
-                          aria-hidden
-                          animate={{ x: ['-120%', '220%'] }}
-                          transition={{ duration: 2.8, repeat: Number.POSITIVE_INFINITY, ease: 'linear', repeatDelay: 1.2 }}
-                          className="pointer-events-none absolute inset-y-0 z-10 w-1/2 bg-gradient-to-r from-transparent via-cyan-400/15 to-transparent"
-                        />
-                      ) : null}
-                      <Search className="pointer-events-none absolute left-3.5 top-1/2 z-20 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <TextInput
-                        value={code}
-                        onChange={(event) => setCode(event.target.value)}
-                        placeholder="e.g. CL-2026-XXXX"
-                        required
-                        className="relative border-slate-200/80 bg-white/90 py-2.5 pl-10 text-sm shadow-inner"
-                      />
-                    </div>
-                    <PrimaryButton
-                      disabled={tracking}
-                      className="shrink-0 bg-gradient-to-r from-cyan-600 to-teal-600 px-5 py-2.5 text-sm shadow-md shadow-cyan-600/20 hover:from-cyan-700 hover:to-teal-700"
-                    >
-                      {tracking ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                          ...
-                        </span>
-                      ) : (
-                        'Track'
-                      )}
-                    </PrimaryButton>
-                  </div>
-                </form>
-
-                <p className="mt-2.5 text-[11px] leading-snug text-slate-500">
-                  No account needed. View status, queue position, and appointment instantly.
-                </p>
-
-                <AnimatePresence mode="wait">
-                  {trackError ? (
-                    <MotionDiv
-                      key="track-error"
-                      initial={{ opacity: 0, scale: 0.96, y: 8, filter: 'blur(4px)' }}
-                      animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
-                      exit={{ opacity: 0, scale: 0.96, filter: 'blur(4px)' }}
-                      transition={{ duration: 0.35, ease: easeOut }}
-                      className="mt-3 rounded-xl border border-red-100 bg-red-50/90 p-3 text-xs text-red-700"
-                    >
-                      {trackError}
-                    </MotionDiv>
-                  ) : null}
-                </AnimatePresence>
-
-                <AnimatePresence mode="wait">
-                  {trackResult ? (
-                    <MotionDiv
-                      key={trackResult.tracking_code}
-                      initial={{ opacity: 0, scale: 0.92, y: 28, filter: 'blur(8px)' }}
-                      animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
-                      exit={{ opacity: 0, scale: 0.95, y: 12, filter: 'blur(4px)' }}
-                      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-                      className="mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-lg shadow-cyan-900/5"
-                    >
-                      <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-r from-cyan-50/90 via-white to-teal-50/50 px-4 py-4 sm:px-5">
-                        <MotionDiv
-                          initial={{ scaleX: 0 }}
-                          animate={{ scaleX: 1 }}
-                          transition={{ duration: 0.8, ease: easeOut, delay: 0.15 }}
-                          className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-gradient-to-r from-cyan-500 to-teal-500"
-                        />
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-mono text-base font-bold tracking-tight text-slate-950 sm:text-lg">
-                            {trackResult.tracking_code}
-                          </h3>
-                          <StatusBadge value={trackResult.display_status || trackResult.status} />
-                        </div>
-                        <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                          <Sparkles className="h-3 w-3 text-cyan-600" />
-                          {trackResult.status_subtitle || 'Referral found — details below'}
-                        </p>
-                      </div>
-
-                      {trackResult.status_message ? (
-                        <div className={cn('border-b px-4 py-3 text-sm sm:px-5', trackingStatusBannerClass(trackResult))}>
-                          {trackResult.status_message}
-                        </div>
-                      ) : null}
-
-                      <MotionStagger className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4" stagger={0.08} delayChildren={0.2}>
-                        {[
-                          { icon: HeartPulse, label: 'Patient', value: trackResult.patient_name },
-                          { icon: Shield, label: 'Receiving center', value: trackResult.receiving_center_name },
-                          {
-                            icon: CalendarClock,
-                            label: 'Appointment',
-                            value: trackResult.appointment_time
-                              ? new Date(trackResult.appointment_time).toLocaleString()
-                              : 'Not scheduled',
-                          },
-                          {
-                            icon: Bell,
-                            label: 'Queue number',
-                            value: trackingQueueLabel(trackResult),
-                          },
-                          {
-                            icon: Activity,
-                            label: 'Queue position',
-                            value: trackResult.queue_position ? `#${trackResult.queue_position} in line` : 'Not in active queue',
-                          },
-                          {
-                            icon: Shield,
-                            label: 'Priority',
-                            value: trackResult.priority_level
-                              ? String(trackResult.priority_level).replaceAll('_', ' ')
-                              : 'Not assigned',
-                          },
-                        ].map((row) => {
-                          const DetailIcon = row.icon;
-                          return (
-                            <MotionItem key={row.label} variant={popUp}>
-                              <div className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50/80 p-3 transition hover:border-cyan-100 hover:bg-white">
-                                <div className="rounded-lg bg-white p-1.5 text-cyan-700 shadow-sm ring-1 ring-slate-200/60">
-                                  <DetailIcon className="h-3.5 w-3.5" />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                                    {row.label}
-                                  </p>
-                                  <p className="mt-0.5 text-xs font-semibold text-slate-900 sm:text-sm">{row.value}</p>
-                                </div>
-                              </div>
-                            </MotionItem>
-                          );
-                        })}
-                      </MotionStagger>
-
-                      <div className="px-3 pb-4 sm:px-4 sm:pb-5">
-                        <TrackingProgress
-                          status={trackResult.display_status || trackResult.status}
-                          result={trackResult}
-                        />
-                      </div>
-                    </MotionDiv>
-                  ) : (
-                    <MotionDiv
-                      key="track-placeholder"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      transition={{ duration: 0.4 }}
-                      className="mt-5"
-                    >
-                      <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                        Preview
-                      </p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { label: 'Status', icon: Activity },
-                          { label: 'Queue', icon: Bell },
-                          { label: 'Appointment', icon: CalendarClock },
-                        ].map((item, index) => {
-                          const PlaceholderIcon = item.icon;
-                          return (
-                            <MotionDiv
-                              key={item.label}
-                              animate={{ opacity: [0.5, 1, 0.5] }}
-                              transition={{
-                                duration: 2.2,
-                                repeat: Number.POSITIVE_INFINITY,
-                                delay: index * 0.25,
-                                ease: 'easeInOut',
-                              }}
-                              className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-2 py-3 text-center"
-                            >
-                              <PlaceholderIcon className="mx-auto h-4 w-4 text-slate-300" />
-                              <p className="mt-1.5 text-[10px] font-medium text-slate-400">{item.label}</p>
-                              <span className="mx-auto mt-2 block h-1 w-12 rounded-full bg-slate-200/80" />
-                            </MotionDiv>
-                          );
-                        })}
-                      </div>
-                    </MotionDiv>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
+            <PublicTrackingPanel
+              code={code}
+              setCode={setCode}
+              tracking={tracking}
+              trackError={trackError}
+              trackResult={trackResult}
+              onLookup={onLookup}
+              title="Track your referral"
+              subtitle="Code from SMS or referral slip"
+            />
           </MotionDiv>
         </div>
       </div>

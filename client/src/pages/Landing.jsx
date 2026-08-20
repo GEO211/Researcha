@@ -191,7 +191,7 @@ function LivePreviewAside() {
   );
 }
 
-export default function Landing({ onLogin, initialTrackingCode = '' }) {
+export default function Landing({ onLogin, initialTrackingCode = '', onNavigate }) {
   const [code, setCode] = useState(initialTrackingCode);
   const [trackResult, setTrackResult] = useState(null);
   const [trackError, setTrackError] = useState('');
@@ -248,6 +248,13 @@ export default function Landing({ onLogin, initialTrackingCode = '' }) {
             <button type="button" onClick={() => scrollTo('features')} className="transition hover:text-cyan-700">Features</button>
             <button type="button" onClick={() => scrollTo('how-it-works')} className="transition hover:text-cyan-700">How it works</button>
             <button type="button" onClick={() => scrollTo('track')} className="transition hover:text-cyan-700">Track referral</button>
+            <button
+              type="button"
+              onClick={() => (onNavigate ? onNavigate('/live-queue') : (window.location.href = '/live-queue'))}
+              className="transition hover:text-cyan-700"
+            >
+              Live queue
+            </button>
           </nav>
           <PrimaryButton onClick={onLogin}>Staff login</PrimaryButton>
         </div>
