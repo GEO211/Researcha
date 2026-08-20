@@ -23,6 +23,16 @@ export function errorHandler(error, req, res, _next) {
     return res.status(404).json({ message: 'Referenced record does not exist.' });
   }
 
+  if (error.code === '28P01' || error.code === '28000') {
+    return res.status(503).json({
+      message: 'Database authentication failed. Set a real DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.',
+    });
+  }
+
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET'].includes(error.code)) {
+    return res.status(503).json({ message: 'Database is unavailable. Check the PostgreSQL connection in server/.env.' });
+  }
+
   const status = error.status || 500;
   const isProduction = process.env.NODE_ENV === 'production';
 

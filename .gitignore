@@ -16,6 +16,9 @@ server/.env
 client/.env.development
 client/.env.production
 
+# Local embedded Postgres
+server/data/
+
 # Supabase local
 supabase/.branches
 supabase/.temp

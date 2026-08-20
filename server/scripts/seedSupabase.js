@@ -99,18 +99,23 @@ async function seedSystemSettings() {
   }
 }
 
-async function main() {
-  console.log('Seeding Supabase for CareLink...');
+export async function seedCareLink() {
+  console.log('Seeding CareLink database...');
   await upsertHealthCenters();
   await upsertUsers();
   await seedPriorityRules();
   await seedSystemSettings();
-  console.log('Supabase seed completed.');
+  console.log('Seed completed.');
   console.log('Default login: admin@carelink.local / password123');
-  await pool.end();
 }
 
-main().catch((error) => {
-  console.error('Supabase seed failed:', error.message);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  seedCareLink()
+    .catch((error) => {
+      console.error('Supabase seed failed:', error.message);
+      process.exit(1);
+    })
+    .finally(() => pool.end());
+}
