@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ClipboardList, Pencil, Users } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -17,6 +17,7 @@ import {
   PageBlock,
   PageStack,
   PrimaryButton,
+  SearchableSelect,
   SelectInput,
   TabPanel,
   TableBody,
@@ -26,7 +27,14 @@ import {
   TextInput,
   useConfirm,
 } from '../components/ui';
-import { classNames } from '../components/helpers';
+import { classNames, formatDateTime } from '../components/helpers';
+import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
+import {
+  PATIENT_CLASSIFICATION_FIELDS,
+  classificationTones,
+  emptyPatientClassifications,
+  patientClassificationTags,
+} from '../data/patientClassifications';
 
 const initialPatient = {
   first_name: '',
@@ -41,34 +49,16 @@ const initialPatient = {
   city: 'Koronadal City',
   postal_code: '9506',
   province: 'South Cotabato',
-  is_senior: false,
-  is_pregnant: false,
-  is_pwd: false,
+  ...emptyPatientClassifications,
   medical_notes: '',
   emergency_contact_name: '',
   emergency_contact_number: '',
 };
 
-function patientClassification(patient) {
-  const tags = [
-    patient.is_senior ? 'Senior' : null,
-    patient.is_pregnant ? 'Pregnant' : null,
-    patient.is_pwd ? 'PWD' : null,
-  ].filter(Boolean);
-  return tags.length ? tags : ['Standard'];
-}
-
-const classificationTones = {
-  Senior: 'bg-amber-50 text-amber-800 ring-amber-200',
-  Pregnant: 'bg-pink-50 text-pink-800 ring-pink-200',
-  PWD: 'bg-violet-50 text-violet-800 ring-violet-200',
-  Standard: 'bg-slate-100 text-slate-600 ring-slate-200',
-};
-
 function ClassificationBadges({ patient }) {
   return (
     <div className="flex flex-wrap gap-1">
-      {patientClassification(patient).map((tag) => (
+      {patientClassificationTags(patient).map((tag) => (
         <span
           key={tag}
           className={classNames(
@@ -85,6 +75,42 @@ function ClassificationBadges({ patient }) {
 
 function patientLocationLine(patient) {
   return [patient.address2, patient.city, patient.province, patient.postal_code].filter(Boolean).join(', ');
+}
+
+function isBarangayStaff(user) {
+  return user?.role === 'barangay_staff';
+}
+
+function registeringCenterName(user, healthCenters, defaultHealthCenterId) {
+  const centerId = isBarangayStaff(user)
+    ? user.health_center_id
+    : defaultHealthCenterId;
+  if (user?.health_center_name && Number(user.health_center_id) === Number(centerId)) {
+    return user.health_center_name;
+  }
+  return healthCenters.find((center) => Number(center.id) === Number(centerId))?.name || '—';
+}
+
+function RegistrationStamp({ recordedAt, centerName }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm md:col-span-2">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Registration stamp</p>
+      <p className="mt-0.5 font-semibold text-slate-900">{formatDateTime(recordedAt)}</p>
+      <p className="text-xs text-slate-500">{centerName || 'Health center not assigned'}</p>
+    </div>
+  );
+}
+
+function useLiveNow(enabled = true) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+
+  return now;
 }
 
 export default function Patients({ patients, healthCenters, user, filters, setFilters, onRefresh }) {
@@ -140,7 +166,7 @@ export default function Patients({ patients, healthCenters, user, filters, setFi
           {activeCategory === 'registration' ? (
             <PatientForm onCreated={onRefresh} healthCenters={healthCenters} user={user} />
           ) : (
-            <PatientList patients={patients} healthCenters={healthCenters} filters={filters} setFilters={setFilters} onRefresh={onRefresh} />
+            <PatientList patients={patients} healthCenters={healthCenters} user={user} filters={filters} setFilters={setFilters} onRefresh={onRefresh} />
           )}
         </TabPanel>
       </PageBlock>
@@ -154,6 +180,16 @@ function PatientForm({ onCreated, healthCenters, user }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
+  const staffCenter = healthCenters.find((center) => Number(center.id) === Number(user?.health_center_id));
+  const lockedAddress = isBarangayStaff(user) ? homeBarangayLabelForCenter(staffCenter) : '';
+  const centerName = registeringCenterName(user, healthCenters, defaultHealthCenterId);
+  const liveNow = useLiveNow(true);
+
+  useEffect(() => {
+    if (!lockedAddress) return undefined;
+    setForm((current) => (current.address === lockedAddress ? current : { ...current, address: lockedAddress }));
+    return undefined;
+  }, [lockedAddress]);
 
   function update(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -171,20 +207,23 @@ function PatientForm({ onCreated, healthCenters, user }) {
     });
     if (!confirmed) return;
 
-    const healthCenterId = user?.role === 'barangay_staff'
+    const matchedCenter = findHealthCenterForBarangay(form.address, healthCenters);
+    const healthCenterId = isBarangayStaff(user)
       ? user.health_center_id
-      : defaultHealthCenterId;
+      : (matchedCenter?.id || defaultHealthCenterId);
 
     try {
-      await api('/patients', {
+      const created = await api('/patients', {
         method: 'POST',
         body: JSON.stringify({
           ...form,
           health_center_id: healthCenterId ? Number(healthCenterId) : undefined,
         }),
       });
-      setForm(initialPatient);
-      setMessage('Patient registered.');
+      setForm({ ...initialPatient, address: lockedAddress });
+      setMessage(
+        `Patient registered ${formatDateTime(created.created_at)} at ${created.health_center_name || centerName}.`,
+      );
       onCreated();
     } catch (err) {
       const details = err.issues?.length
@@ -222,7 +261,7 @@ function PatientForm({ onCreated, healthCenters, user }) {
         <Field label="Email">
           <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 md:col-span-2">
           <Field label="Emergency contact name">
             <TextInput value={form.emergency_contact_name} onChange={(event) => update('emergency_contact_name', event.target.value)} />
           </Field>
@@ -230,11 +269,20 @@ function PatientForm({ onCreated, healthCenters, user }) {
             <TextInput value={form.emergency_contact_number} onChange={(event) => update('emergency_contact_number', event.target.value)} />
           </Field>
         </div>
-        <Field label="Address">
-          <TextInput value={form.address} onChange={(event) => update('address', event.target.value)} required />
+        <Field label="Address 1">
+          <SearchableSelect
+            value={form.address}
+            onChange={(nextValue) => update('address', nextValue)}
+            options={toBarangaySearchableOptions(form.address)}
+            placeholder="Select barangay"
+            searchPlaceholder="Search barangay…"
+            emptyMessage="No barangay matches your search"
+            disabled={Boolean(lockedAddress)}
+            required
+          />
         </Field>
-        <Field label="Address 2">
-          <TextInput value={form.address2} onChange={(event) => update('address2', event.target.value)} placeholder="Apartment, unit, landmark" />
+        <Field label="Address 2 (optional)">
+          <TextInput value={form.address2} onChange={(event) => update('address2', event.target.value)} placeholder="Add (optional)" />
         </Field>
         <Field label="City">
           <TextInput value={form.city} onChange={(event) => update('city', event.target.value)} />
@@ -245,12 +293,9 @@ function PatientForm({ onCreated, healthCenters, user }) {
         <Field label="Province">
           <TextInput value={form.province} onChange={(event) => update('province', event.target.value)} />
         </Field>
+        <RegistrationStamp recordedAt={liveNow} centerName={centerName} />
         <div className="flex flex-wrap gap-3 md:col-span-2">
-          {[
-            ['is_senior', 'Senior citizen'],
-            ['is_pregnant', 'Pregnant'],
-            ['is_pwd', 'PWD'],
-          ].map(([key, label]) => (
+          {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
             <label key={key} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm">
               <input type="checkbox" checked={form[key]} onChange={(event) => update(key, event.target.checked)} />
               {label}
@@ -276,11 +321,13 @@ function PatientForm({ onCreated, healthCenters, user }) {
   );
 }
 
-function PatientList({ patients, healthCenters, filters, setFilters, onRefresh }) {
+function PatientList({ patients, healthCenters, user, filters, setFilters, onRefresh }) {
   const confirm = useConfirm();
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialPatient);
   const barangayCenters = healthCenters.filter((center) => center.type === 'barangay');
+  const editingPatient = patients.find((patient) => patient.id === editingId);
+  const lockAddress = isBarangayStaff(user);
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -305,9 +352,9 @@ function PatientList({ patients, healthCenters, filters, setFilters, onRefresh }
       city: patient.city || '',
       postal_code: patient.postal_code || '',
       province: patient.province || '',
-      is_senior: Boolean(patient.is_senior),
-      is_pregnant: Boolean(patient.is_pregnant),
-      is_pwd: Boolean(patient.is_pwd),
+      ...Object.fromEntries(
+        PATIENT_CLASSIFICATION_FIELDS.map(({ key }) => [key, Boolean(patient[key])]),
+      ),
       medical_notes: patient.medical_notes || '',
       emergency_contact_name: patient.emergency_contact_name || '',
       emergency_contact_number: patient.emergency_contact_number || '',
@@ -373,67 +420,74 @@ function PatientList({ patients, healthCenters, filters, setFilters, onRefresh }
         <form onSubmit={saveEdit} className="overflow-hidden rounded-2xl border border-cyan-200/80 bg-cyan-50/40">
           <div className="border-b border-cyan-100 bg-white/80 px-4 py-3">
             <p className="text-sm font-semibold text-slate-900">Edit patient</p>
-            <p className="text-xs text-slate-500">Update patient details and save your changes.</p>
+            <p className="text-xs text-slate-500">
+              Registered {formatDateTime(editingPatient?.created_at)} at {editingPatient?.health_center_name || '—'}.
+            </p>
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
-          <Field label="First name">
-            <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required />
-          </Field>
-          <Field label="Last name">
-            <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required />
-          </Field>
-          <Field label="Birth date">
-            <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} required />
-          </Field>
-          <Field label="Contact number">
-            <TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} />
-          </Field>
-          <Field label="Email">
-            <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-          </Field>
-          <Field label="Address">
-            <TextInput value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} required />
-          </Field>
-          <Field label="Address 2">
-            <TextInput value={form.address2} onChange={(event) => setForm({ ...form, address2: event.target.value })} />
-          </Field>
-          <Field label="City">
-            <TextInput value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
-          </Field>
-          <Field label="Postal code">
-            <TextInput value={form.postal_code} onChange={(event) => setForm({ ...form, postal_code: event.target.value })} />
-          </Field>
-          <Field label="Province">
-            <TextInput value={form.province} onChange={(event) => setForm({ ...form, province: event.target.value })} />
-          </Field>
-          <div className="flex flex-wrap items-end gap-3">
-            {[
-              ['is_senior', 'Senior'],
-              ['is_pregnant', 'Pregnant'],
-              ['is_pwd', 'PWD'],
-            ].map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm">
-                <input type="checkbox" checked={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.checked })} />
-                {label}
-              </label>
-            ))}
-          </div>
-          <FormActions className="md:col-span-2 border-cyan-100 bg-white/70 px-4 py-3">
-            <PrimaryButton>Save changes</PrimaryButton>
-            <button type="button" onClick={() => setEditingId(null)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-              Cancel
-            </button>
-          </FormActions>
+            <Field label="First name">
+              <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required />
+            </Field>
+            <Field label="Last name">
+              <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required />
+            </Field>
+            <Field label="Birth date">
+              <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} required />
+            </Field>
+            <Field label="Contact number">
+              <TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} />
+            </Field>
+            <Field label="Email">
+              <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+            </Field>
+            <Field label="Address 1">
+              <SearchableSelect
+                value={form.address}
+                onChange={(nextValue) => setForm({ ...form, address: nextValue })}
+                options={toBarangaySearchableOptions(form.address)}
+                placeholder="Select barangay"
+                searchPlaceholder="Search barangay…"
+                emptyMessage="No barangay matches your search"
+                disabled={lockAddress}
+                required
+              />
+            </Field>
+            <Field label="Address 2 (optional)">
+              <TextInput value={form.address2} onChange={(event) => setForm({ ...form, address2: event.target.value })} placeholder="Add (optional)" />
+            </Field>
+            <Field label="City">
+              <TextInput value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
+            </Field>
+            <Field label="Postal code">
+              <TextInput value={form.postal_code} onChange={(event) => setForm({ ...form, postal_code: event.target.value })} />
+            </Field>
+            <Field label="Province">
+              <TextInput value={form.province} onChange={(event) => setForm({ ...form, province: event.target.value })} />
+            </Field>
+            <div className="flex flex-wrap items-end gap-3">
+              {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm">
+                  <input type="checkbox" checked={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.checked })} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <FormActions className="border-cyan-100 bg-white/70 px-4 py-3 md:col-span-2">
+              <PrimaryButton>Save changes</PrimaryButton>
+              <button type="button" onClick={() => setEditingId(null)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                Cancel
+              </button>
+            </FormActions>
           </div>
         </form>
       </ExpandPanel>
 
-      <TableShell minWidth="860px">
+      <TableShell minWidth="960px">
         <TableHead>
           <TableHeadCell>Patient</TableHeadCell>
           <TableHeadCell>Contact</TableHeadCell>
           <TableHeadCell>Location</TableHeadCell>
-          <TableHeadCell>Health Center</TableHeadCell>
+          <TableHeadCell>Registered</TableHeadCell>
           <TableHeadCell>Classification</TableHeadCell>
           <TableHeadCell className="text-right">Actions</TableHeadCell>
         </TableHead>
@@ -477,7 +531,10 @@ function PatientList({ patients, healthCenters, filters, setFilters, onRefresh }
                     </div>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-slate-700">{patient.health_center_name || '—'}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium text-slate-800">{formatDateTime(patient.created_at)}</div>
+                  <div className="mt-0.5 max-w-[220px] text-xs text-slate-500">{patient.health_center_name || '—'}</div>
+                </td>
                 <td className="px-4 py-3">
                   <ClassificationBadges patient={patient} />
                 </td>

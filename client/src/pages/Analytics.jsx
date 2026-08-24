@@ -290,7 +290,7 @@ function ClinicReportsPanel({ analytics }) {
 function AiIntelligencePanel() {
   const [aiInsights, setAiInsights] = useState(null);
   const [aiError, setAiError] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
 
   async function loadAiInsights() {
     setAiLoading(true);

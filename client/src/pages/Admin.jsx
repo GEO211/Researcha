@@ -15,7 +15,8 @@ import {
   TextInput,
   useConfirm,
 } from '../components/ui';
-import { classNames, roleLabel } from '../components/helpers';
+import { classNames, formatDateTime, roleLabel } from '../components/helpers';
+import { KORONADAL_BARANGAYS, barangayAddressLabel, barangayHealthCenterName } from '../data/koronadalBarangays';
 
 export default function Admin({ users, healthCenters, settingsData, smsLogs, emailLogs, auditLogs, onRefresh }) {
   const [active, setActive] = useState('users');
@@ -66,7 +67,7 @@ export default function Admin({ users, healthCenters, settingsData, smsLogs, ema
       <PageBlock>
         <TabPanel panelKey={active}>
           {active === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
-          {active === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
+          {active === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} users={users} onRefresh={onRefresh} /> : null}
           {active === 'settings' ? <SystemSettings settingsData={settingsData} onRefresh={onRefresh} /> : null}
           {active === 'sms' ? <LogsPanel title="SMS Logs" rows={smsLogs} columns={['recipient_number', 'message', 'status', 'trigger_type', 'created_at']} /> : null}
           {active === 'email' ? <LogsPanel title="Email Logs" rows={emailLogs} columns={['recipient_email', 'subject', 'status', 'trigger_type', 'created_at']} /> : null}
@@ -81,6 +82,14 @@ function UserManagement({ users, healthCenters, onRefresh }) {
   const confirm = useConfirm();
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'barangay_staff', health_center_id: '', status: 'active' });
   const [editing, setEditing] = useState(null);
+  const barangayCenters = healthCenters.filter((center) => center.type === 'barangay' && center.status === 'active');
+  const cityCenters = healthCenters.filter((center) => center.type === 'city' && center.status === 'active');
+
+  function centersForRole(role) {
+    if (role === 'barangay_staff') return barangayCenters;
+    if (role === 'city_staff') return cityCenters;
+    return healthCenters;
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -158,9 +167,13 @@ function UserManagement({ users, healthCenters, onRefresh }) {
             </SelectInput>
           </Field>
           <Field label="Health center">
-            <SelectInput value={editing.health_center_id || ''} onChange={(e) => setEditing({ ...editing, health_center_id: e.target.value })}>
-              <option value="">No assigned center</option>
-              {healthCenters.map((center) => <option key={center.id} value={center.id}>{center.name}</option>)}
+            <SelectInput value={editing.health_center_id || ''} onChange={(e) => setEditing({ ...editing, health_center_id: e.target.value })} required={editing.role === 'barangay_staff'}>
+              <option value="">{editing.role === 'super_admin' ? 'No assigned center' : 'Select barangay health center'}</option>
+              {centersForRole(editing.role).map((center) => (
+                <option key={center.id} value={center.id}>
+                  {center.barangay_name ? `Barangay ${center.barangay_name}` : center.name}
+                </option>
+              ))}
             </SelectInput>
           </Field>
           <div className="flex items-end gap-2">
@@ -175,16 +188,24 @@ function UserManagement({ users, healthCenters, onRefresh }) {
         <Field label="Email"><TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></Field>
         <Field label="Password"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></Field>
         <Field label="Role">
-          <SelectInput value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+          <SelectInput value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, health_center_id: '' })}>
             <option value="barangay_staff">Barangay Staff</option>
             <option value="city_staff">City Staff</option>
             <option value="super_admin">Super Admin</option>
           </SelectInput>
         </Field>
         <Field label="Health center">
-          <SelectInput value={form.health_center_id} onChange={(event) => setForm({ ...form, health_center_id: event.target.value })}>
-            <option value="">No assigned center</option>
-            {healthCenters.map((center) => <option key={center.id} value={center.id}>{center.name}</option>)}
+          <SelectInput
+            value={form.health_center_id}
+            onChange={(event) => setForm({ ...form, health_center_id: event.target.value })}
+            required={form.role === 'barangay_staff'}
+          >
+            <option value="">{form.role === 'super_admin' ? 'No assigned center' : 'Select barangay health center'}</option>
+            {centersForRole(form.role).map((center) => (
+              <option key={center.id} value={center.id}>
+                {center.barangay_name ? `Barangay ${center.barangay_name} Health Center` : center.name}
+              </option>
+            ))}
           </SelectInput>
         </Field>
         <div className="flex items-end"><PrimaryButton>Create user</PrimaryButton></div>
@@ -203,9 +224,48 @@ function UserManagement({ users, healthCenters, onRefresh }) {
   );
 }
 
-function HealthCenterManagement({ healthCenters, onRefresh }) {
+function centerFormFrom(center) {
+  return {
+    name: center?.name || '',
+    type: center?.type || 'barangay',
+    address: center?.address || '',
+    contact_number: center?.contact_number || '',
+    status: center?.status || 'active',
+    barangay_name: center?.barangay_name || '',
+  };
+}
+
+function HealthCenterManagement({ healthCenters, users = [], onRefresh }) {
   const confirm = useConfirm();
-  const [form, setForm] = useState({ name: '', type: 'barangay', address: '', contact_number: '', status: 'active' });
+  const [form, setForm] = useState(centerFormFrom());
+  const [editing, setEditing] = useState(null);
+  const barangayCount = healthCenters.filter((center) => center.type === 'barangay').length;
+  const cityCount = healthCenters.filter((center) => center.type === 'city').length;
+  const sortedCenters = [...healthCenters].sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'city' ? -1 : 1;
+    return String(a.barangay_name || a.name).localeCompare(String(b.barangay_name || b.name));
+  });
+
+  function payloadFrom(values) {
+    return {
+      name: values.name,
+      type: values.type,
+      address: values.address,
+      contact_number: values.contact_number || null,
+      status: values.status,
+      barangay_name: values.type === 'barangay' ? (values.barangay_name || null) : null,
+    };
+  }
+
+  function applyBarangay(name, setValues) {
+    setValues((current) => ({
+      ...current,
+      type: 'barangay',
+      barangay_name: name,
+      name: name ? barangayHealthCenterName(name) : current.name,
+      address: name ? `${barangayAddressLabel(name)}, Koronadal City, South Cotabato` : current.address,
+    }));
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -216,8 +276,25 @@ function HealthCenterManagement({ healthCenters, onRefresh }) {
     });
     if (!confirmed) return;
 
-    await api('/health-centers', { method: 'POST', body: JSON.stringify(form) });
-    setForm({ name: '', type: 'barangay', address: '', contact_number: '', status: 'active' });
+    await api('/health-centers', { method: 'POST', body: JSON.stringify(payloadFrom(form)) });
+    setForm(centerFormFrom());
+    await onRefresh();
+  }
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    const confirmed = await confirm({
+      title: 'Update health center?',
+      message: `Save all details for ${editing.name}?`,
+      confirmLabel: 'Save changes',
+    });
+    if (!confirmed) return;
+
+    await api(`/health-centers/${editing.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payloadFrom(editing)),
+    });
+    setEditing(null);
     await onRefresh();
   }
 
@@ -238,21 +315,121 @@ function HealthCenterManagement({ healthCenters, onRefresh }) {
     await onRefresh();
   }
 
-  return (
-    <Card title="Health Centers" icon={Settings}>
-      <form onSubmit={submit} className="mb-5 grid gap-3 md:grid-cols-3">
-        <Field label="Name"><TextInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
+  function renderFields(values, setValues) {
+    return (
+      <>
         <Field label="Type">
-          <SelectInput value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+          <SelectInput
+            value={values.type}
+            onChange={(event) => setValues((current) => ({
+              ...current,
+              type: event.target.value,
+              barangay_name: event.target.value === 'barangay' ? current.barangay_name : '',
+            }))}
+          >
             <option value="barangay">Barangay</option>
             <option value="city">City</option>
           </SelectInput>
         </Field>
-        <Field label="Contact"><TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} /></Field>
-        <Field label="Address"><TextInput value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} required /></Field>
-        <div className="flex items-end"><PrimaryButton>Add center</PrimaryButton></div>
-      </form>
-      <SimpleTable rows={healthCenters} columns={['name', 'type', 'address', 'contact_number', 'status']} renderActions={(center) => <button className="text-cyan-700" type="button" onClick={() => toggleStatus(center)}>{center.status === 'active' ? 'Deactivate' : 'Activate'}</button>} />
+        <Field label="Barangay">
+          <SelectInput
+            value={values.barangay_name}
+            onChange={(event) => applyBarangay(event.target.value, setValues)}
+            disabled={values.type !== 'barangay'}
+            required={values.type === 'barangay'}
+          >
+            <option value="">Select Koronadal barangay</option>
+            {KORONADAL_BARANGAYS.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </SelectInput>
+        </Field>
+        <Field label="Name">
+          <TextInput value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} required />
+        </Field>
+        <Field label="Contact number">
+          <TextInput value={values.contact_number} onChange={(event) => setValues((current) => ({ ...current, contact_number: event.target.value }))} placeholder="Optional" />
+        </Field>
+        <Field label="Status">
+          <SelectInput value={values.status} onChange={(event) => setValues((current) => ({ ...current, status: event.target.value }))}>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </SelectInput>
+        </Field>
+        <Field label="Address">
+          <TextInput value={values.address} onChange={(event) => setValues((current) => ({ ...current, address: event.target.value }))} required />
+        </Field>
+      </>
+    );
+  }
+
+  return (
+    <Card title="Health Centers" icon={Settings}>
+      <p className="mb-4 text-sm text-slate-500">
+        {barangayCount} barangay health centers · {cityCount} city health center{cityCount === 1 ? '' : 's'} · {healthCenters.length} total
+      </p>
+
+      {editing ? (
+        <form onSubmit={saveEdit} className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4 md:grid-cols-3">
+          {renderFields(editing, setEditing)}
+          <div className="flex items-end gap-2 md:col-span-3">
+            <PrimaryButton>Save changes</PrimaryButton>
+            <button type="button" onClick={() => setEditing(null)} className="rounded-xl border border-slate-300 px-4 py-2 text-sm">Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={submit} className="mb-5 grid gap-3 md:grid-cols-3">
+          {renderFields(form, setForm)}
+          <div className="flex items-end"><PrimaryButton>Add center</PrimaryButton></div>
+        </form>
+      )}
+
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1180px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50/90">
+                {['ID', 'Name', 'Type', 'Barangay', 'Address', 'Contact', 'Status', 'Assigned staff', 'Created', 'Updated', 'Actions'].map((label) => (
+                  <th key={label} className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sortedCenters.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="px-4 py-10 text-center text-sm text-slate-500">No health centers found.</td>
+                </tr>
+              ) : sortedCenters.map((center) => {
+                const staff = users.filter((user) => Number(user.health_center_id) === Number(center.id));
+                return (
+                  <tr key={center.id} className="align-top hover:bg-slate-50/70">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-600">{center.id}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{center.name || '—'}</td>
+                    <td className="px-4 py-3 capitalize text-slate-700">{center.type || '—'}</td>
+                    <td className="px-4 py-3 text-slate-700">{center.barangay_name || '—'}</td>
+                    <td className="max-w-xs px-4 py-3 whitespace-normal text-slate-700">{center.address || '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{center.contact_number || '—'}</td>
+                    <td className="px-4 py-3 capitalize text-slate-700">{center.status || '—'}</td>
+                    <td className="max-w-[220px] px-4 py-3 whitespace-normal text-slate-700">
+                      {staff.length ? staff.map((user) => `${user.name} (${roleLabel(user.role)})`).join(', ') : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{formatDateTime(center.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{formatDateTime(center.updated_at)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <button className="text-left text-cyan-700" type="button" onClick={() => setEditing({ id: center.id, ...centerFormFrom(center) })}>Edit</button>
+                        <button className="text-left text-cyan-700" type="button" onClick={() => toggleStatus(center)}>
+                          {center.status === 'active' ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </Card>
   );
 }

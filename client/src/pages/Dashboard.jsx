@@ -119,8 +119,18 @@ function OverviewPanel({ summary }) {
   const smsTotal = summary.smsCounts?.reduce((sum, row) => sum + Number(row.count), 0) || 0;
   const operational = summary.operationalCounts || {};
   const waitingRate = queueTotal ? Math.round((Number(operational.waiting_queue || 0) / queueTotal) * 100) : 0;
-  const demographicRows = Object.entries(summary.demographicDistribution || {}).map(([label, value]) => ({
-    label,
+  const demographicLabels = {
+    seniors: 'Senior',
+    pregnant: 'Pregnant',
+    pwd: 'PWD',
+    child: 'Child',
+    infant: 'Infant',
+    indigenous: 'Indigenous (IP)',
+    soloParent: 'Solo parent',
+    standard: 'Standard',
+  };
+  const demographicRows = Object.entries(summary.demographicDistribution || {}).map(([key, value]) => ({
+    label: demographicLabels[key] || key,
     count: Number(value || 0),
   }));
   const queueByPriority = (summary.queueCounts || []).reduce((acc, row) => {
@@ -232,7 +242,7 @@ const CHART_COLORS = [
 function AiAnalyticsPanel() {
   const [aiInsights, setAiInsights] = useState(null);
   const [aiError, setAiError] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
 
   async function loadAiInsights() {
     setAiLoading(true);

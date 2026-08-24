@@ -25,6 +25,10 @@ const priorityRules = [
   { name: 'Senior citizen', category: 'demographic', condition_key: 'is_senior', score_value: 25, is_active: true },
   { name: 'Pregnant patient', category: 'demographic', condition_key: 'is_pregnant', score_value: 25, is_active: true },
   { name: 'Person with disability', category: 'demographic', condition_key: 'is_pwd', score_value: 25, is_active: true },
+  { name: 'Child patient', category: 'demographic', condition_key: 'is_child', score_value: 20, is_active: true },
+  { name: 'Infant patient', category: 'demographic', condition_key: 'is_infant', score_value: 25, is_active: true },
+  { name: 'Indigenous patient', category: 'demographic', condition_key: 'is_indigenous', score_value: 15, is_active: true },
+  { name: 'Solo parent', category: 'demographic', condition_key: 'is_solo_parent', score_value: 15, is_active: true },
   { name: 'Emergency referral type', category: 'referral_type', condition_key: 'emergency', score_value: 50, is_active: true },
   { name: 'Specialist consultation', category: 'referral_type', condition_key: 'specialist_consultation', score_value: 30, is_active: true },
   { name: 'Follow-up referral', category: 'referral_type', condition_key: 'follow_up', score_value: 15, is_active: true },
@@ -102,6 +106,8 @@ async function seedSystemSettings() {
 export async function seedCareLink() {
   console.log('Seeding CareLink database...');
   await upsertHealthCenters();
+  const { ensureKoronadalBarangayCenters } = await import('../src/lib/supabase/store.js');
+  await ensureKoronadalBarangayCenters();
   await upsertUsers();
   await seedPriorityRules();
   await seedSystemSettings();

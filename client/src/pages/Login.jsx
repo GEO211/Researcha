@@ -4,6 +4,7 @@ import { HeartPulse } from 'lucide-react';
 import { api, storeSession } from '../api';
 import {
   Field,
+  LoadingOverlay,
   MotionHero,
   MotionHeroItem,
   PrimaryButton,
@@ -41,6 +42,7 @@ export default function Login({ onLogin, onBack }) {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-4">
+      <LoadingOverlay open={loading} label="Signing in" />
       <MotionDiv
         initial={{ opacity: 0, scale: 0.88, y: 28 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

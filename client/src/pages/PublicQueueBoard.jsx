@@ -108,6 +108,10 @@ function QueueEntryCard({ entry, index, total }) {
             {entry.priority_level ? (
               <span className="text-xs font-medium text-slate-500">{priorityLabel(entry.priority_level)}</span>
             ) : null}
+            {entry.checkup_location || entry.receiving_center_name ? (
+              <span className="text-xs text-slate-500">{entry.checkup_location || entry.receiving_center_name}</span>
+            ) : null}
+            ) : null}
           </div>
           <p className="mt-2 text-xs text-slate-400">
             {entry.queue_position === 1

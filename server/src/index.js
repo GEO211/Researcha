@@ -20,7 +20,7 @@ import evaluationRoutes from './routes/evaluationRoutes.js';
 import emailRoutes from './routes/emailRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
-import { checkDatabaseConnection } from './config/db.js';
+import { checkDatabaseConnection, pool } from './config/db.js';
 import { startReminderScheduler } from './services/reminderScheduler.js';
 
 dotenv.config();
@@ -74,7 +74,14 @@ app.use('/api/public', publicRoutes);
 app.use(notFound);
 app.use(errorHandler);
 
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(`CareLink API running on http://localhost:${port}`);
+  try {
+    await pool.ready;
+  } catch (error) {
+    console.error('Supabase connection failed:', error.message);
+    console.error('Set DATABASE_URL or SUPABASE_DB_PASSWORD (and pooler host) in server/.env.');
+    process.exit(1);
+  }
   startReminderScheduler();
 });

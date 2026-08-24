@@ -52,6 +52,10 @@ async function runCompatibilityMigrations(connection) {
   await ensureColumn(connection, 'patients', 'city', 'VARCHAR(100) NULL AFTER address2');
   await ensureColumn(connection, 'patients', 'postal_code', 'VARCHAR(20) NULL AFTER city');
   await ensureColumn(connection, 'patients', 'province', 'VARCHAR(100) NULL AFTER postal_code');
+  await ensureColumn(connection, 'patients', 'is_child', 'BOOLEAN NOT NULL DEFAULT FALSE AFTER is_pwd');
+  await ensureColumn(connection, 'patients', 'is_infant', 'BOOLEAN NOT NULL DEFAULT FALSE AFTER is_child');
+  await ensureColumn(connection, 'patients', 'is_indigenous', 'BOOLEAN NOT NULL DEFAULT FALSE AFTER is_infant');
+  await ensureColumn(connection, 'patients', 'is_solo_parent', 'BOOLEAN NOT NULL DEFAULT FALSE AFTER is_indigenous');
   await connection.query('ALTER TABLE patients MODIFY contact_number VARCHAR(30) NULL');
 }
 

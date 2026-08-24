@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HeartPulse, LogOut, Menu, X } from 'lucide-react';
 import { api, clearSession, getStoredSession } from './api';
 import { classNames, roleLabel, tabIcon, tabLabel } from './components/helpers';
+import { LoadingOverlay } from './components/ui';
 import Admin from './pages/Admin';
 import Analytics from './pages/Analytics';
 import Dashboard from './pages/Dashboard';
@@ -37,6 +38,8 @@ function App() {
   const [emailLogs, setEmailLogs] = useState([]);
   const [patientFilters, setPatientFilters] = useState({ q: '', city: '', province: '', contact_number: '', email: '', health_center_id: '' });
   const [error, setError] = useState('');
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authView, setAuthView] = useState('landing');
 
@@ -44,18 +47,21 @@ function App() {
   const canManage = user?.role === 'super_admin';
   const canReview = ['super_admin', 'city_staff'].includes(user?.role);
   const canSubmit = ['super_admin', 'barangay_staff'].includes(user?.role);
+  const canUseQueue = canReview || user?.role === 'barangay_staff';
 
   const tabs = useMemo(() => {
     const items = [{ id: 'dashboard', label: 'Dashboard' }];
     if (canSubmit) items.push({ id: 'patients', label: 'Patients' }, { id: 'referrals', label: 'Referrals' });
-    if (canReview) items.push({ id: 'queue', label: 'Queue' }, { id: 'analytics', label: 'Analytics' });
+    if (canUseQueue) items.push({ id: 'queue', label: 'Queue' });
+    if (canReview) items.push({ id: 'analytics', label: 'Analytics' });
     items.push({ id: 'tracking', label: 'Tracking' }, { id: 'evaluation', label: 'Evaluation' }, { id: 'profile', label: 'Profile' });
     if (canManage) items.push({ id: 'admin', label: 'Admin' });
     return items;
-  }, [canManage, canReview, canSubmit]);
+  }, [canManage, canReview, canSubmit, canUseQueue]);
 
   const loadData = useCallback(async () => {
     if (!session) return;
+    setDataLoading(true);
     setError('');
 
     try {
@@ -71,8 +77,11 @@ function App() {
         api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`),
         api('/health-centers'),
       ];
-      const reviewRequests = canReview
-        ? [api('/queue'), api('/analytics'), api('/evaluations')]
+      const reviewRequests = canUseQueue
+        ? [
+            api('/queue'),
+            ...(canReview ? [api('/analytics'), api('/evaluations')] : [Promise.resolve({}), Promise.resolve({ summary: [], responses: [] })]),
+          ]
         : [Promise.resolve({ queue: [] }), Promise.resolve({}), Promise.resolve({ summary: [], responses: [] })];
       const adminRequests = canManage
         ? [api('/users'), api('/settings'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
@@ -105,10 +114,13 @@ function App() {
       setAuditLogs(auditLogData?.logs || []);
       setEmailLogs(emailLogData?.logs || []);
       setEvaluationData(evaluationResponse || { summary: [], responses: [], patientSummary: {} });
+      setDataReady(true);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setDataLoading(false);
     }
-  }, [canManage, canReview, patientFilters, referralFilters, session]);
+  }, [canManage, canReview, canUseQueue, patientFilters, referralFilters, session]);
 
   useEffect(() => {
     function handlePopState() {
@@ -144,6 +156,7 @@ function App() {
     function handleSessionExpired() {
       clearSession();
       setSession(null);
+      setDataReady(false);
       setAuthView('login');
       setError('Your session expired. Please sign in again.');
     }
@@ -155,6 +168,7 @@ function App() {
   function logout() {
     clearSession();
     setSession(null);
+    setDataReady(false);
     setAuthView('landing');
   }
 
@@ -288,9 +302,15 @@ function App() {
         </header>
 
         <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+          <LoadingOverlay open={dataLoading} label="Loading records from database" />
           {error ? <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-          {activeTab === 'dashboard' ? <Dashboard key="dashboard" summary={summary} /> : null}
-          {activeTab === 'patients' && canSubmit ? (
+          {!dataReady && !error ? (
+            <div className="flex min-h-[50vh] items-center justify-center rounded-3xl border border-slate-200 bg-white">
+              <p className="text-sm font-medium text-slate-500">Fetching live data from Supabase…</p>
+            </div>
+          ) : null}
+          {dataReady && activeTab === 'dashboard' ? <Dashboard key="dashboard" summary={summary} /> : null}
+          {dataReady && activeTab === 'patients' && canSubmit ? (
             <Patients
               key="patients"
               patients={patients}
@@ -301,7 +321,7 @@ function App() {
               onRefresh={loadData}
             />
           ) : null}
-          {activeTab === 'referrals' && canSubmit ? (
+          {dataReady && activeTab === 'referrals' && canSubmit ? (
             <Referrals
               key="referrals"
               patients={patients}
@@ -314,12 +334,12 @@ function App() {
               onRefresh={loadData}
             />
           ) : null}
-          {activeTab === 'queue' && canReview ? <Queue key="queue" onRefresh={loadData} /> : null}
-          {activeTab === 'analytics' && canReview ? <Analytics key="analytics" analytics={analytics} /> : null}
-          {activeTab === 'tracking' ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
-          {activeTab === 'evaluation' ? <Evaluation key="evaluation" evaluationData={evaluationData} canReview={canReview} session={session} onRefresh={loadData} /> : null}
-          {activeTab === 'profile' ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
-          {activeTab === 'admin' && canManage ? (
+          {dataReady && activeTab === 'queue' && canUseQueue ? <Queue key="queue" user={user} onRefresh={loadData} /> : null}
+          {dataReady && activeTab === 'analytics' && canReview ? <Analytics key="analytics" analytics={analytics} /> : null}
+          {dataReady && activeTab === 'tracking' ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
+          {dataReady && activeTab === 'evaluation' ? <Evaluation key="evaluation" evaluationData={evaluationData} canReview={canReview} session={session} onRefresh={loadData} /> : null}
+          {dataReady && activeTab === 'profile' ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
+          {dataReady && activeTab === 'admin' && canManage ? (
             <Admin
               key="admin"
               users={users}

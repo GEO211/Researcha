@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   CalendarClock,
@@ -10,6 +10,7 @@ import {
   History,
   Inbox,
   ListChecks,
+  MapPin,
   Send,
   UserPlus,
   Users,
@@ -43,7 +44,9 @@ import {
   TextInput,
   useConfirm,
 } from '../components/ui';
-import { classNames, priorityLabel } from '../components/helpers';
+import { classNames, formatDateTime, priorityLabel } from '../components/helpers';
+import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
+import { PATIENT_CLASSIFICATION_FIELDS, emptyPatientClassifications } from '../data/patientClassifications';
 
 const initialReferral = {
   patient_id: '',
@@ -107,11 +110,10 @@ const initialQuickPatient = {
   sex: 'female',
   contact_number: '',
   address: '',
+  address2: '',
   city: 'Koronadal City',
   province: 'South Cotabato',
-  is_senior: false,
-  is_pregnant: false,
-  is_pwd: false,
+  ...emptyPatientClassifications,
 };
 
 const STATUS_GROUPS = {
@@ -433,6 +435,8 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
                   totalCount={referrals.length}
                   onRefresh={onRefresh}
                   canReview={canReview}
+                  canTransfer
+                  healthCenters={healthCenters}
                   filters={filters}
                   setFilters={setFilters}
                   statusGroup={statusGroup}
@@ -465,12 +469,20 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
   const [patientMessage, setPatientMessage] = useState('');
   const [patientError, setPatientError] = useState('');
   const [registeringPatient, setRegisteringPatient] = useState(false);
-  const receivingCenters = healthCenters.filter((center) => center.type === 'city' && center.status === 'active');
+  const receivingCenters = healthCenters.filter((center) => center.status === 'active');
   const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
+  const staffCenter = healthCenters.find((center) => Number(center.id) === Number(user?.health_center_id));
+  const lockedAddress = user?.role === 'barangay_staff' ? homeBarangayLabelForCenter(staffCenter) : '';
+
+  useEffect(() => {
+    if (!lockedAddress) return undefined;
+    setQuickPatient((current) => (current.address === lockedAddress ? current : { ...current, address: lockedAddress }));
+    return undefined;
+  }, [lockedAddress]);
   const patientOptions = useMemo(
     () => patients.map((patient) => {
       const fullName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
-      const hintParts = [patient.contact_number, patient.city, patient.health_center_name].filter(Boolean);
+      const hintParts = [patient.contact_number, patient.health_center_name, formatDateTime(patient.created_at)].filter(Boolean);
       return {
         value: String(patient.id),
         label: fullName,
@@ -484,8 +496,8 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
     () => receivingCenters.map((center) => ({
       value: String(center.id),
       label: center.name,
-      hint: [center.city, center.address].filter(Boolean).join(' · ') || 'City receiving center',
-      searchText: [center.name, center.city, center.address, center.province].join(' '),
+      hint: [center.barangay_name ? `Barangay ${center.barangay_name}` : center.type, center.address].filter(Boolean).join(' · ') || 'Checkup location',
+      searchText: [center.name, center.barangay_name, center.address, center.type].join(' '),
     })),
     [receivingCenters],
   );
@@ -509,9 +521,10 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
     });
     if (!confirmed) return;
 
+    const matchedCenter = findHealthCenterForBarangay(quickPatient.address, healthCenters);
     const healthCenterId = user?.role === 'barangay_staff'
       ? user.health_center_id
-      : defaultHealthCenterId;
+      : (matchedCenter?.id || defaultHealthCenterId);
 
     if (!healthCenterId) {
       setPatientError('No barangay health center is available for registration.');
@@ -528,10 +541,16 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
         }),
       });
       await onCreated();
-      setForm((current) => ({ ...current, patient_id: String(created.id) }));
-      setQuickPatient(initialQuickPatient);
+      setForm((current) => ({
+        ...current,
+        patient_id: String(created.id),
+        receiving_health_center_id: String(created.health_center_id || healthCenterId),
+      }));
+      setQuickPatient({ ...initialQuickPatient, address: lockedAddress });
       setPatientMode('existing');
-      setPatientMessage(`${created.first_name} ${created.last_name} registered and selected.`);
+      setPatientMessage(
+        `${created.first_name} ${created.last_name} registered ${formatDateTime(created.created_at)} at ${created.health_center_name || 'the health center'} and selected.`,
+      );
     } catch (err) {
       const details = err.issues?.length
         ? err.issues.map((issue) => `${issue.field}: ${issue.message}`).join(' ')
@@ -638,7 +657,16 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                     <Field label="Patient">
                       <SearchableSelect
                         value={form.patient_id}
-                        onChange={(nextValue) => setForm({ ...form, patient_id: nextValue })}
+                        onChange={(nextValue) => {
+                          const patient = patients.find((item) => String(item.id) === String(nextValue));
+                          setForm({
+                            ...form,
+                            patient_id: nextValue,
+                            receiving_health_center_id: patient?.health_center_id
+                              ? String(patient.health_center_id)
+                              : form.receiving_health_center_id,
+                          });
+                        }}
                         options={patientOptions}
                         placeholder="Select patient"
                         searchPlaceholder="Search name or mobile number…"
@@ -647,22 +675,27 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                       />
                       {selectedPatient && (
                         <p className="mt-1.5 text-xs text-slate-500">
+                          Registered {formatDateTime(selectedPatient.created_at)} at {selectedPatient.health_center_name || '—'}.
+                          {' '}
                           {selectedPatient.contact_number
-                            ? "SMS will be sent to the patient's registered mobile number."
+                            ? 'SMS will be sent to the registered mobile number.'
                             : 'This patient has no registered mobile number. Add one before submitting.'}
                         </p>
                       )}
                     </Field>
-                    <Field label="Receiving center">
+                    <Field label="Checkup location">
                       <SearchableSelect
                         value={form.receiving_health_center_id}
                         onChange={(nextValue) => setForm({ ...form, receiving_health_center_id: nextValue })}
                         options={receivingCenterOptions}
-                        placeholder="Select center"
-                        searchPlaceholder="Search center name or city…"
-                        emptyMessage="No centers match your search"
+                        placeholder="Select barangay health center"
+                        searchPlaceholder="Search barangay or center…"
+                        emptyMessage="No health centers match your search"
                         required
                       />
+                      <p className="mt-1.5 text-xs text-slate-500">
+                        Defaults to the patient’s home barangay. Transfer to another barangay health center if needed.
+                      </p>
                     </Field>
                   </div>
                 ) : (
@@ -692,8 +725,22 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                         <TextInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} placeholder="09XXXXXXXXX" required />
                       </Field>
                       <div className="sm:col-span-2 lg:col-span-3">
-                        <Field label="Address">
-                          <TextInput value={quickPatient.address} onChange={(event) => updateQuickPatient('address', event.target.value)} required />
+                        <Field label="Address 1">
+                          <SearchableSelect
+                            value={quickPatient.address}
+                            onChange={(nextValue) => updateQuickPatient('address', nextValue)}
+                            options={toBarangaySearchableOptions(quickPatient.address)}
+                            placeholder="Select barangay"
+                            searchPlaceholder="Search barangay…"
+                            emptyMessage="No barangay matches your search"
+                            disabled={Boolean(lockedAddress)}
+                            required
+                          />
+                        </Field>
+                      </div>
+                      <div className="sm:col-span-2 lg:col-span-3">
+                        <Field label="Address 2 (optional)">
+                          <TextInput value={quickPatient.address2} onChange={(event) => updateQuickPatient('address2', event.target.value)} placeholder="Add (optional)" />
                         </Field>
                       </div>
                       <Field label="City">
@@ -704,11 +751,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                       </Field>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-3">
-                      {[
-                        ['is_senior', 'Senior'],
-                        ['is_pregnant', 'Pregnant'],
-                        ['is_pwd', 'PWD'],
-                      ].map(([key, label]) => (
+                      {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
                         <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-emerald-100">
                           <input
                             type="checkbox"
@@ -719,6 +762,9 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                         </label>
                       ))}
                     </div>
+                    <p className="mt-3 text-xs text-emerald-800">
+                      Registration stamp: {formatDateTime(new Date())} at {user?.health_center_name || 'the registering health center'}.
+                    </p>
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                       <PrimaryButton
                         type="button"
@@ -737,14 +783,14 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                 )}
 
                 {patientMode === 'existing' ? null : (
-                  <Field label="Receiving center">
+                  <Field label="Checkup location">
                     <SearchableSelect
                       value={form.receiving_health_center_id}
                       onChange={(nextValue) => setForm({ ...form, receiving_health_center_id: nextValue })}
                       options={receivingCenterOptions}
-                      placeholder="Select center"
-                      searchPlaceholder="Search center name or city…"
-                      emptyMessage="No centers match your search"
+                      placeholder="Select barangay health center"
+                      searchPlaceholder="Search barangay or center…"
+                      emptyMessage="No health centers match your search"
                       required
                     />
                   </Field>
@@ -872,12 +918,19 @@ function ReferralReviewPanel({ referral, mode, decision, setDecision, onSubmit, 
   );
 }
 
-function ReferralRowActions({ referral, canReview, rowBusy, onReview, onSchedule, onAction, stacked = false }) {
+function ReferralRowActions({ referral, canReview, canTransfer = false, rowBusy, onReview, onSchedule, onAction, onTransfer, stacked = false }) {
   const wrapClass = stacked
     ? 'flex flex-col gap-2 sm:flex-row sm:flex-wrap'
     : 'inline-flex flex-nowrap items-center gap-1.5';
 
+  const transferButton = canTransfer && isQueuedReferral(referral) ? (
+    <ActionButton variant="neutral" icon={MapPin} disabled={rowBusy} onClick={() => onTransfer(referral)}>
+      Transfer location
+    </ActionButton>
+  ) : null;
+
   if (!canReview) {
+    if (transferButton) return <div className={wrapClass}>{transferButton}</div>;
     return <span className="text-xs text-slate-400">Awaiting city review</span>;
   }
 
@@ -894,6 +947,11 @@ function ReferralRowActions({ referral, canReview, rowBusy, onReview, onSchedule
   if (isQueuedReferral(referral)) {
     const moreMenu = ({ close }) => (
       <>
+        {canTransfer ? (
+          <button type="button" disabled={rowBusy} onClick={() => { onTransfer(referral); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50">
+            Transfer checkup location
+          </button>
+        ) : null}
         <button type="button" disabled={rowBusy} onClick={() => { onSchedule(referral); close(); }} className="block w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50">
           Schedule appointment
         </button>
@@ -1022,6 +1080,7 @@ function ReferralRecordCard({
   onReview,
   onSchedule,
   onAction,
+  onTransfer,
   onSubmitReview,
   onCloseReview,
   actionError,
@@ -1056,10 +1115,12 @@ function ReferralRecordCard({
         <ReferralRowActions
           referral={referral}
           canReview={canReview}
+          canTransfer
           rowBusy={rowBusy}
           onReview={onReview}
           onSchedule={onSchedule}
           onAction={onAction}
+          onTransfer={onTransfer}
           stacked
         />
       </div>
@@ -1081,13 +1142,15 @@ function ReferralRecordCard({
   );
 }
 
-function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, setFilters, statusGroup }) {
+function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup }) {
   const confirm = useConfirm();
   const [reviewing, setReviewing] = useState(null);
   const [reviewMode, setReviewMode] = useState('review');
   const [actionError, setActionError] = useState('');
   const [actingId, setActingId] = useState(null);
   const [decision, setDecision] = useState({ status: 'approved', appointment_time: '', rejection_reason: '' });
+  const [transferring, setTransferring] = useState(null);
+  const [transferCenterId, setTransferCenterId] = useState('');
 
   function openReview(referral, mode = 'review') {
     setActionError('');
@@ -1196,6 +1259,37 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, s
     }
   }
 
+  function startTransfer(referral) {
+    setActionError('');
+    setTransferring(referral);
+    setTransferCenterId(String(referral.receiving_health_center_id || ''));
+  }
+
+  async function submitTransfer(event) {
+    event.preventDefault();
+    if (!transferring) return;
+    const confirmed = await confirm({
+      title: 'Transfer checkup location?',
+      message: 'Move this checkup to another barangay or city health center queue?',
+      confirmLabel: 'Transfer',
+    });
+    if (!confirmed) return;
+
+    setActingId(transferring.id);
+    try {
+      await api(`/referrals/${transferring.id}/transfer`, {
+        method: 'POST',
+        body: JSON.stringify({ receiving_health_center_id: Number(transferCenterId) }),
+      });
+      setTransferring(null);
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActingId(null);
+    }
+  }
+
   const isActing = (id) => actingId === id;
   const groupLabels = {
     all: 'All referrals',
@@ -1223,6 +1317,31 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, s
       <div className="mb-4">
         <ReferralFilters filters={filters} setFilters={setFilters} />
       </div>
+
+      {transferring ? (
+        <form onSubmit={submitTransfer} className="mb-4 grid gap-3 rounded-2xl border border-cyan-200 bg-cyan-50/50 p-4 sm:grid-cols-[1fr_auto]">
+          <Field label={`Transfer ${referralPatientName(transferring)} checkup to`}>
+            <SearchableSelect
+              value={transferCenterId}
+              onChange={setTransferCenterId}
+              options={healthCenters.filter((center) => center.status === 'active').map((center) => ({
+                value: String(center.id),
+                label: center.name,
+                hint: center.barangay_name ? `Barangay ${center.barangay_name}` : center.type,
+                searchText: [center.name, center.barangay_name, center.address].join(' '),
+              }))}
+              placeholder="Select barangay health center"
+              searchPlaceholder="Search barangay…"
+              emptyMessage="No health centers match"
+              required
+            />
+          </Field>
+          <div className="flex items-end gap-2">
+            <PrimaryButton disabled={isActing(transferring.id)}>Transfer</PrimaryButton>
+            <button type="button" className="rounded-xl border border-slate-300 px-4 py-2 text-sm" onClick={() => setTransferring(null)}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
 
       {actionError && !reviewing ? (
         <div className="mb-4">
@@ -1252,6 +1371,7 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, s
                 onReview={startReview}
                 onSchedule={(row) => openReview(row, 'schedule')}
                 onAction={action}
+                onTransfer={startTransfer}
                 onSubmitReview={submitReview}
                 onCloseReview={() => setReviewing(null)}
                 actionError={actionError}
@@ -1279,7 +1399,10 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, s
                       <AnimatedTableRow index={index}>
                         <td className="px-4 py-3 align-top">
                           <p className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</p>
-                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{referral.receiving_center_name}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{referral.checkup_location || referral.receiving_center_name}</p>
+                          {referral.home_barangay ? (
+                            <p className="mt-0.5 text-xs text-slate-400">Home: {referral.home_barangay}</p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 align-top text-sm font-medium text-slate-800">{referralPatientName(referral)}</td>
                         <td className="px-4 py-3 align-top"><StatusBadge value={referral.status} /></td>
@@ -1295,10 +1418,12 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, filters, s
                             <ReferralRowActions
                               referral={referral}
                               canReview={canReview}
+                              canTransfer={canTransfer}
                               rowBusy={rowBusy}
                               onReview={startReview}
                               onSchedule={(row) => openReview(row, 'schedule')}
                               onAction={action}
+                              onTransfer={startTransfer}
                             />
                           </div>
                         </td>

@@ -10,6 +10,10 @@ const FALLBACK_RULES = {
     is_senior: 25,
     is_pregnant: 25,
     is_pwd: 25,
+    is_child: 20,
+    is_infant: 25,
+    is_indigenous: 15,
+    is_solo_parent: 15,
   },
   referral_type: {
     emergency: 50,
@@ -56,13 +60,14 @@ export async function calculatePriority({ patient, referral }) {
   const referralScore = rules.referral_type[referral.referral_type] || 0;
   const severityScore = rules.severity[referral.severity_level || 'moderate'] || 0;
 
-  const demographicScore =
-    (patient.is_senior ? rules.demographic.is_senior || 0 : 0) +
-    (patient.is_pregnant ? rules.demographic.is_pregnant || 0 : 0) +
-    (patient.is_pwd ? rules.demographic.is_pwd || 0 : 0);
+  const demographicKeys = ['is_senior', 'is_pregnant', 'is_pwd', 'is_child', 'is_infant', 'is_indigenous', 'is_solo_parent'];
+  const demographicScore = demographicKeys.reduce(
+    (sum, key) => sum + (patient[key] ? rules.demographic[key] || 0 : 0),
+    0,
+  );
 
   const score = clinicalScore + referralScore + demographicScore + severityScore;
-  const isVulnerable = Boolean(patient.is_senior || patient.is_pregnant || patient.is_pwd);
+  const isVulnerable = demographicKeys.some((key) => patient[key]);
 
   if (referral.clinical_urgency === 'emergency' || score >= thresholds.emergency) {
     return { priorityScore: score, priorityLevel: 'priority_1_emergency' };

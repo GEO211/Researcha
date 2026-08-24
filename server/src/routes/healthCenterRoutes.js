@@ -12,6 +12,7 @@ const healthCenterSchema = z.object({
   address: z.string().min(2),
   contact_number: z.string().optional().nullable(),
   status: z.enum(['active', 'inactive']).default('active'),
+  barangay_name: z.string().optional().nullable(),
 });
 
 router.get('/', authenticate, async (_req, res, next) => {
@@ -45,7 +46,7 @@ router.patch('/:id', authenticate, authorize('super_admin'), async (req, res, ne
       return res.status(404).json({ message: 'Health center not found.' });
     }
 
-    const updated = await updateHealthCenter(id, { ...existing, ...data });
+    const updated = await updateHealthCenter(id, data);
     await audit(req, 'health_center.updated', 'health_center', id, existing, data);
     return res.json(updated);
   } catch (error) {

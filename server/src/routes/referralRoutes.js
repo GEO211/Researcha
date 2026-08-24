@@ -11,8 +11,10 @@ import {
   getPatient,
   getReferral,
   hasSentSms,
+  listHealthCenters,
   listReferrals,
   missReferral,
+  transferReferralLocation,
   updateReferral,
   updateQueueByReferral,
 } from '../lib/supabase/store.js';
@@ -27,7 +29,7 @@ const router = Router();
 
 const referralSchema = z.object({
   patient_id: z.coerce.number().int().positive(),
-  receiving_health_center_id: z.coerce.number().int().positive().default(1),
+  receiving_health_center_id: z.coerce.number().int().positive().optional(),
   referral_reason: z.string().min(5),
   clinical_urgency: z.enum(['emergency', 'urgent', 'routine']),
   referral_type: z.enum(['emergency', 'specialist_consultation', 'follow_up', 'routine']),
@@ -96,10 +98,16 @@ router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async
       return res.status(400).json({ message: 'Patient contact number is required to send SMS confirmation.' });
     }
 
+    const receivingId = data.receiving_health_center_id || patient.health_center_id;
+    const receivingCenter = await getHealthCenter(receivingId);
+    if (!receivingCenter || receivingCenter.status !== 'active') {
+      return res.status(400).json({ message: 'Select an active checkup location (barangay or city health center).' });
+    }
+
     const appointmentAt = generateDefaultAppointmentAt();
-    const receivingCenter = await getHealthCenter(data.receiving_health_center_id);
     const payload = {
       ...data,
+      receiving_health_center_id: receivingCenter.id,
       referral_code: createReferralCode(),
       referring_health_center_id: patient.health_center_id,
       submitted_by_user_id: req.user.id,
@@ -160,6 +168,52 @@ router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async
       sms_error: smsResult.error || smsResult.reason || null,
       sms_warning: smsResult.warning || null,
       sms_recipient: smsResult.recipient || patient.contact_number,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const transferSchema = z.object({
+  receiving_health_center_id: z.coerce.number().int().positive(),
+});
+
+router.post('/:id/transfer', authenticate, authorize('barangay_staff', 'city_staff', 'super_admin'), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const data = transferSchema.parse(req.body);
+    const referral = await getReferral(id);
+
+    if (!referral) {
+      return res.status(404).json({ message: 'Referral not found.' });
+    }
+
+    if (!['queued', 'submitted', 'under_review', 'approved'].includes(referral.status)) {
+      return res.status(409).json({ message: 'Only active checkups can be transferred to another health center.' });
+    }
+
+    if (req.user.role === 'barangay_staff') {
+      const allowed = Number(referral.referring_health_center_id) === Number(req.user.health_center_id)
+        || Number(referral.receiving_health_center_id) === Number(req.user.health_center_id);
+      if (!allowed) {
+        return res.status(403).json({ message: 'This checkup is not assigned to your barangay health center.' });
+      }
+    }
+
+    const receivingCenter = await getHealthCenter(data.receiving_health_center_id);
+    if (!receivingCenter || receivingCenter.status !== 'active') {
+      return res.status(400).json({ message: 'Select an active barangay or city health center.' });
+    }
+
+    const updated = await transferReferralLocation(id, receivingCenter.id);
+    await audit(req, 'referral.transferred', 'referral', id, {
+      from_center_id: referral.receiving_health_center_id,
+      to_center_id: receivingCenter.id,
+    });
+
+    return res.json({
+      ...updated,
+      message: `Checkup transferred to ${receivingCenter.name}.`,
     });
   } catch (error) {
     return next(error);

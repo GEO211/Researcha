@@ -333,7 +333,8 @@ export default function Queue({ onRefresh }) {
                     <th className="p-2">Date</th>
                     <th className="p-2">Queue #</th>
                     <th className="p-2">Patient</th>
-                    <th className="p-2">Referring center</th>
+                    <th className="p-2">Home barangay</th>
+                    <th className="p-2">Checkup location</th>
                     <th className="p-2">Priority</th>
                     <th className="p-2">Queue</th>
                     <th className="p-2">Referral</th>
@@ -352,7 +353,8 @@ export default function Queue({ onRefresh }) {
                         <td className="p-2 font-mono text-xs text-slate-600">{formatQueueDate(entry.queue_date)}</td>
                         <td className="p-2 font-mono text-xs text-slate-800">{entry.queue_number}</td>
                         <td className="p-2 text-slate-800">{queuePatientName(entry)}</td>
-                        <td className="p-2 text-slate-600">{entry.referring_center_name || '—'}</td>
+                        <td className="p-2 text-slate-600">{entry.home_barangay || '—'}</td>
+                        <td className="p-2 text-slate-600">{entry.checkup_location || entry.receiving_center_name || '—'}</td>
                         <td className="p-2">{priorityLabel(entry.priority_level)}</td>
                         <td className="p-2"><StatusBadge value={queueStatus(entry)} /></td>
                         <td className="p-2"><StatusBadge value={entry.referral_status || 'unknown'} /></td>

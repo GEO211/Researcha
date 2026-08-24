@@ -17,7 +17,7 @@ const defaultSteps = [
       'Barangay staff captures patient details, contact info, address, and medical classification at the local health center.',
     benefits: [
       'Complete patient registry with search and filters',
-      'Senior, pregnant, and PWD classification support',
+      'Senior, pregnant, PWD, child, infant, IP, and solo parent classification',
       'SMS and email contact for appointment reminders',
     ],
     tint: 'from-slate-50 via-cyan-50/40 to-white',

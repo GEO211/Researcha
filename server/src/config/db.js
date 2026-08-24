@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -9,39 +8,49 @@ const serverRoot = path.resolve(__dirname, '../..');
 dotenv.config({ path: path.resolve(serverRoot, '.env') });
 
 const { Pool } = pg;
-const PLACEHOLDER_RE = /your-password|changeme|example\.com/i;
+const PLACEHOLDER_RE = /your-password|changeme|example\.com|YOUR_PASSWORD/i;
 
-function hasUsableRemoteDatabase() {
+function supabaseProjectRef() {
+  const url = process.env.SUPABASE_URL || 'https://oejvlgmoxefwwawqdpwo.supabase.co';
+  try {
+    return new URL(url).hostname.split('.')[0];
+  } catch {
+    return 'oejvlgmoxefwwawqdpwo';
+  }
+}
+
+function hasRemoteCredentials() {
   const databaseUrl = process.env.DATABASE_URL || '';
   const password = process.env.SUPABASE_DB_PASSWORD || '';
-
   if (databaseUrl && !PLACEHOLDER_RE.test(databaseUrl)) return true;
   if (password && !PLACEHOLDER_RE.test(password)) return true;
   return false;
 }
 
-function buildConnectionString() {
+function connectionCandidates() {
+  const urls = [];
   if (process.env.DATABASE_URL && !PLACEHOLDER_RE.test(process.env.DATABASE_URL)) {
-    return process.env.DATABASE_URL;
+    urls.push(process.env.DATABASE_URL);
   }
 
   const password = encodeURIComponent(process.env.SUPABASE_DB_PASSWORD || '');
-  const host = process.env.SUPABASE_DB_HOST || 'db.oejvlgmoxefwwawqdpwo.supabase.co';
-  const user = process.env.SUPABASE_DB_USER || 'postgres';
-  const database = process.env.SUPABASE_DB_NAME || 'postgres';
-  const port = process.env.SUPABASE_DB_PORT || '5432';
+  if (!password) return urls;
 
-  return `postgresql://${user}:${password}@${host}:${port}/${database}`;
+  const ref = supabaseProjectRef();
+  const database = process.env.SUPABASE_DB_NAME || 'postgres';
+  const poolerHost = process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ap-southeast-1.pooler.supabase.com';
+  const preferPooler = process.env.SUPABASE_DB_USE_POOLER !== 'false';
+  const poolerUser = `postgres.${ref}`;
+  const poolerUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:5432/${database}`;
+  const directUrl = `postgresql://postgres:${password}@db.${ref}.supabase.co:5432/${database}`;
+
+  if (preferPooler) urls.push(poolerUrl, directUrl);
+  else urls.push(directUrl, poolerUrl);
+
+  return [...new Set(urls)];
 }
 
-function createPgPool() {
-  const useSsl = process.env.NODE_ENV === 'production' || process.env.SUPABASE_DB_SSL !== 'false';
-  const pool = new Pool({
-    connectionString: buildConnectionString(),
-    ssl: useSsl ? { rejectUnauthorized: false } : false,
-    max: 10,
-  });
-
+function attachTransaction(pool) {
   pool.transaction = async (fn) => {
     const client = await pool.connect();
     try {
@@ -56,67 +65,46 @@ function createPgPool() {
       client.release();
     }
   };
-
   return pool;
 }
 
-function createPglitePool(db) {
-  return {
-    async query(text, params) {
-      if (!params?.length && /;\s*\S/.test(text.trim().replace(/;\s*$/, ''))) {
-        const results = await db.exec(text);
-        return results.at(-1) || { rows: [] };
-      }
-      return db.query(text, params);
-    },
-    transaction: (fn) => db.transaction((tx) => fn(tx)),
-    async connect() {
-      return {
-        query: (sql, params) => db.query(sql, params),
-        release() {},
-      };
-    },
-    async end() {
-      await db.close();
-    },
-    on() {},
-  };
-}
+async function connectSupabasePool() {
+  if (!hasRemoteCredentials()) {
+    throw new Error('Supabase credentials are missing. Set DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.');
+  }
 
-async function applyLocalSchema(db) {
-  const schemaPath = path.resolve(serverRoot, '../database/supabase/schema.sql');
-  const schemaSql = await fs.readFile(schemaPath, 'utf8');
-  await db.exec(schemaSql);
-}
+  const urls = connectionCandidates();
+  if (!urls.length) {
+    throw new Error('Set DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.');
+  }
 
-async function ensureLocalData(db) {
-  await applyLocalSchema(db);
-  const { rows } = await db.query('SELECT COUNT(*)::int AS count FROM users');
-  if (rows[0]?.count > 0) return;
+  const errors = [];
+  for (const connectionString of urls) {
+    const pool = new Pool({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+      connectionTimeoutMillis: 12_000,
+    });
+    try {
+      await pool.query('SELECT 1 AS ok');
+      return attachTransaction(pool);
+    } catch (error) {
+      errors.push(error.message);
+      await pool.end().catch(() => {});
+    }
+  }
 
-  const { seedCareLink } = await import('../../scripts/seedSupabase.js');
-  await seedCareLink();
+  throw new Error(`Could not reach Supabase Postgres. ${errors.at(-1) || ''}`.trim());
 }
 
 function createDeferredPool() {
   let impl = null;
   const ready = (async () => {
-    if (hasUsableRemoteDatabase()) {
-      impl = createPgPool();
-      impl.on('connect', () => {
-        if (process.env.NODE_ENV !== 'test') {
-          console.log('Supabase PostgreSQL connected');
-        }
-      });
-      return impl;
+    impl = await connectSupabasePool();
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('Supabase PostgreSQL connected');
     }
-
-    const { PGlite } = await import('@electric-sql/pglite');
-    // In-memory avoids Windows file locks and nodemon restart loops on data/.
-    const db = await PGlite.create();
-    impl = createPglitePool(db);
-    await ensureLocalData(db);
-    console.log('Using in-memory PGlite database (set DATABASE_URL in server/.env to use Supabase)');
     return impl;
   })();
 

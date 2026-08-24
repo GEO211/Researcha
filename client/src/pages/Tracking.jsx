@@ -7,6 +7,7 @@ import {
   AnimatedPanel,
   Card,
   FlashMessage,
+  LoadingOverlay,
   PageBlock,
   PrimaryButton,
   StatusBadge,
@@ -20,15 +21,19 @@ export default function Tracking({ initialCode = '' }) {
   const [code, setCode] = useState(initialCode);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [lookingUp, setLookingUp] = useState(false);
 
   const lookup = useCallback(async (codeToLookup = code) => {
     setError('');
     setResult(null);
+    setLookingUp(true);
     try {
       const data = await api(`/public/track/${codeToLookup}`);
       setResult(data);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLookingUp(false);
     }
   }, [code]);
 
@@ -40,6 +45,7 @@ export default function Tracking({ initialCode = '' }) {
 
   return (
     <PageBlock>
+      <LoadingOverlay open={lookingUp} label="Looking up referral" />
       <Card title="Track Referral" icon={HeartPulse}>
         <AnimatedPanel>
           <form
@@ -51,7 +57,7 @@ export default function Tracking({ initialCode = '' }) {
           >
             <TextInput value={code} onChange={(event) => setCode(event.target.value)} placeholder="Enter tracking code" required />
             <MotionDiv whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-              <PrimaryButton>Track</PrimaryButton>
+              <PrimaryButton disabled={lookingUp}>{lookingUp ? 'Looking up...' : 'Track'}</PrimaryButton>
             </MotionDiv>
           </form>
         </AnimatedPanel>

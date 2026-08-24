@@ -15,8 +15,11 @@ import { callMessage, resolvePatientDisplayName, sendSms } from '../services/sms
 
 const router = Router();
 
-router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (req, res, next) => {
+router.get('/', authenticate, authorize('super_admin', 'city_staff', 'barangay_staff'), async (req, res, next) => {
   try {
+    const receivingHealthCenterId = req.user.role === 'barangay_staff'
+      ? req.user.health_center_id
+      : (req.query.health_center_id ? Number(req.query.health_center_id) : undefined);
     const hasFilters = Boolean(
       req.query.range
       || req.query.date
@@ -27,7 +30,7 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (req
     );
 
     if (!hasFilters) {
-      const queue = await listTodayQueue();
+      const queue = await listTodayQueue({ receivingHealthCenterId });
       return res.json({
         queue,
         meta: {
@@ -46,6 +49,7 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (req
       priority: req.query.priority,
       referral_status: req.query.referral_status,
       q: req.query.q,
+      receivingHealthCenterId,
     });
     return res.json(result);
   } catch (error) {
@@ -53,11 +57,18 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (req
   }
 });
 
-router.post('/:id/call', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/call', authenticate, authorize('city_staff', 'super_admin', 'barangay_staff'), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const entry = await getQueueEntry(id);
     if (!entry) return res.status(404).json({ message: 'Queue entry not found.' });
+
+    if (req.user.role === 'barangay_staff') {
+      const referral = await getReferral(entry.referral_id);
+      if (Number(referral?.receiving_health_center_id) !== Number(req.user.health_center_id)) {
+        return res.status(403).json({ message: 'This queue belongs to another barangay health center.' });
+      }
+    }
 
     if (!['waiting', 'called'].includes(entry.queue_status)) {
       const label = String(entry.queue_status || 'unknown').replaceAll('_', ' ');

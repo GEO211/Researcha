@@ -155,9 +155,16 @@ async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}
     is_senior: patient?.is_senior,
     is_pregnant: patient?.is_pregnant,
     is_pwd: patient?.is_pwd,
+    is_child: patient?.is_child,
+    is_infant: patient?.is_infant,
+    is_indigenous: patient?.is_indigenous,
+    is_solo_parent: patient?.is_solo_parent,
     email: patient?.email,
     referring_center_name: fromCenter?.name,
     receiving_center_name: toCenter?.name,
+    home_barangay: patient?.address || fromCenter?.barangay_name || null,
+    checkup_location: toCenter?.name || null,
+    checkup_barangay: toCenter?.barangay_name || toCenter?.name || null,
     queue_number: queue?.queue_number || null,
     priority_level: queue?.priority_level || null,
     priority_score: queue?.priority_score ?? null,
@@ -173,6 +180,47 @@ async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}
 export async function listHealthCenters() {
   const rows = await select(`SELECT * FROM ${TABLES.healthCenters}`);
   return rows.sort((a, b) => `${a.type}${a.name}`.localeCompare(`${b.type}${b.name}`));
+}
+
+export async function ensureKoronadalBarangayCenters() {
+  const {
+    KORONADAL_BARANGAYS,
+    barangayHealthCenterName,
+    barangayAddressLabel,
+    findHealthCenterForBarangay,
+  } = await import('../../data/koronadalBarangays.js');
+  const existing = await select(`SELECT * FROM ${TABLES.healthCenters}`);
+
+  for (const barangay of KORONADAL_BARANGAYS) {
+    const match = findHealthCenterForBarangay(barangay, existing);
+    const name = barangayHealthCenterName(barangay);
+    const address = `${barangayAddressLabel(barangay)}, Koronadal City, South Cotabato`;
+
+    if (match) {
+      await query(
+        `UPDATE ${TABLES.healthCenters}
+         SET barangay_name = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [barangay, match.id],
+      );
+      match.barangay_name = barangay;
+      continue;
+    }
+
+    const created = await insertRow(TABLES.healthCenters, {
+      name,
+      type: 'barangay',
+      address,
+      contact_number: null,
+      status: 'active',
+      barangay_name: barangay,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    });
+    existing.push(created);
+  }
+
+  return listHealthCenters();
 }
 
 export async function getHealthCenter(id) {
@@ -262,17 +310,27 @@ export async function listPatients(filters = {}) {
   return patients.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100);
 }
 
+async function attachPatientCenter(patient) {
+  if (!patient) return patient;
+  return {
+    ...patient,
+    health_center_name: await getHealthCenterName(patient.health_center_id),
+  };
+}
+
 export async function getPatient(id) {
-  return getRowById(TABLES.patients, id);
+  return attachPatientCenter(await getRowById(TABLES.patients, id));
 }
 
 export async function createPatient(data) {
   const ts = nowIso();
-  return insertRow(TABLES.patients, { ...data, created_at: ts, updated_at: ts });
+  const created = await insertRow(TABLES.patients, { ...data, created_at: ts, updated_at: ts });
+  return attachPatientCenter(created);
 }
 
 export async function updatePatient(id, data) {
-  await updateRowById(TABLES.patients, id, { ...data, updated_at: nowIso() });
+  const { created_at: _createdAt, health_center_name: _centerName, ...payload } = data;
+  await updateRowById(TABLES.patients, id, { ...payload, updated_at: nowIso() });
   return getPatient(id);
 }
 
@@ -290,7 +348,10 @@ export async function listReferrals(filters = {}) {
 
   let rows = referrals;
   if (filters.healthCenterId) {
-    rows = rows.filter((r) => r.referring_health_center_id === filters.healthCenterId);
+    rows = rows.filter((r) =>
+      Number(r.referring_health_center_id) === Number(filters.healthCenterId)
+      || Number(r.receiving_health_center_id) === Number(filters.healthCenterId),
+    );
   }
   if (filters.priorityLevel) {
     rows = rows.filter((r) => queueMap.get(Number(r.id))?.priority_level === filters.priorityLevel);
@@ -479,6 +540,14 @@ export async function updateReferral(id, data) {
   return getReferral(id);
 }
 
+export async function transferReferralLocation(id, receivingHealthCenterId) {
+  await updateRowById(TABLES.referrals, id, {
+    receiving_health_center_id: Number(receivingHealthCenterId),
+    updated_at: nowIso(),
+  });
+  return getReferral(id);
+}
+
 export async function getQueueEntryByReferral(referralId) {
   return selectOne(
     `SELECT * FROM ${TABLES.queueEntries} WHERE referral_id = $1 LIMIT 1`,
@@ -553,6 +622,8 @@ function enrichQueueEntries(queues, { referrals, patients, centers }) {
         referral_code: referral.referral_code,
         referral_status: referral.status,
         referral_id: referral.id,
+        receiving_health_center_id: referral.receiving_health_center_id,
+        referring_health_center_id: referral.referring_health_center_id,
         appointment_at: referral.appointment_at || null,
         patient_name: patient ? `${patient.first_name} ${patient.last_name}`.trim() : null,
         first_name: patient?.first_name,
@@ -560,6 +631,9 @@ function enrichQueueEntries(queues, { referrals, patients, centers }) {
         contact_number: patient?.contact_number,
         referring_center_name: center?.name || null,
         receiving_center_name: receiving?.name || null,
+        home_barangay: patient?.address || center?.barangay_name || null,
+        checkup_location: receiving?.name || null,
+        checkup_barangay: receiving?.barangay_name || receiving?.name || null,
       };
     })
     .filter(Boolean);
@@ -623,6 +697,12 @@ export async function listQueueEntries(filters = {}) {
   ]);
 
   let rows = enrichQueueEntries(allQueues, { referrals, patients, centers });
+
+  if (filters.receivingHealthCenterId) {
+    const centerId = Number(filters.receivingHealthCenterId);
+    rows = rows.filter((entry) => Number(entry.receiving_health_center_id) === centerId
+      || Number(referrals.find((item) => Number(item.id) === Number(entry.referral_id))?.receiving_health_center_id) === centerId);
+  }
 
   if (window.range === 'active') {
     rows = rows.filter((entry) => entry.referral_status === 'queued'
@@ -709,8 +789,8 @@ export async function listQueueEntries(filters = {}) {
   };
 }
 
-export async function listTodayQueue() {
-  const result = await listQueueEntries({ range: 'today' });
+export async function listTodayQueue(filters = {}) {
+  const result = await listQueueEntries({ range: 'today', ...filters });
   return result.queue;
 }
 
@@ -1013,11 +1093,16 @@ export async function getDashboardSummary(user) {
     return acc;
   }, {})).map(([clinical_urgency, count]) => ({ clinical_urgency, count })).sort((a, b) => b.count - a.count);
 
+  const classified = (p) => p.is_senior || p.is_pregnant || p.is_pwd || p.is_child || p.is_infant || p.is_indigenous || p.is_solo_parent;
   const demographicDistribution = {
     seniors: patients.filter((p) => p.is_senior).length,
     pregnant: patients.filter((p) => p.is_pregnant).length,
     pwd: patients.filter((p) => p.is_pwd).length,
-    standard: patients.filter((p) => !p.is_senior && !p.is_pregnant && !p.is_pwd).length,
+    child: patients.filter((p) => p.is_child).length,
+    infant: patients.filter((p) => p.is_infant).length,
+    indigenous: patients.filter((p) => p.is_indigenous).length,
+    soloParent: patients.filter((p) => p.is_solo_parent).length,
+    standard: patients.filter((p) => !classified(p)).length,
   };
 
   const perfMap = new Map();
@@ -1304,6 +1389,10 @@ export async function exportPatientsRows() {
     is_senior: p.is_senior,
     is_pregnant: p.is_pregnant,
     is_pwd: p.is_pwd,
+    is_child: p.is_child,
+    is_infant: p.is_infant,
+    is_indigenous: p.is_indigenous,
+    is_solo_parent: p.is_solo_parent,
     health_center: centerMap.get(Number(p.health_center_id))?.name,
     created_at: p.created_at,
   }));
@@ -1491,6 +1580,8 @@ export async function getPublicActiveQueueBoard() {
         priority_level: entry.priority_level,
         anonymous_name: anonymizePatientLabel(entry.first_name, entry.last_name),
         receiving_center_name: entry.receiving_center_name || null,
+        checkup_location: entry.checkup_location || entry.receiving_center_name || null,
+        checkup_barangay: entry.checkup_barangay || null,
       });
     });
   }

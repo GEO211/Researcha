@@ -77,6 +77,10 @@ router.get('/export/patients.csv', authenticate, authorize('super_admin', 'city_
       is_senior: '',
       is_pregnant: '',
       is_pwd: '',
+      is_child: '',
+      is_infant: '',
+      is_indigenous: '',
+      is_solo_parent: '',
       health_center: '',
       created_at: '',
     });

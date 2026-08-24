@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS health_centers (
   address VARCHAR(255) NOT NULL,
   contact_number VARCHAR(30),
   status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  barangay_name VARCHAR(100),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -42,6 +43,10 @@ CREATE TABLE IF NOT EXISTS patients (
   is_senior BOOLEAN NOT NULL DEFAULT FALSE,
   is_pregnant BOOLEAN NOT NULL DEFAULT FALSE,
   is_pwd BOOLEAN NOT NULL DEFAULT FALSE,
+  is_child BOOLEAN NOT NULL DEFAULT FALSE,
+  is_infant BOOLEAN NOT NULL DEFAULT FALSE,
+  is_indigenous BOOLEAN NOT NULL DEFAULT FALSE,
+  is_solo_parent BOOLEAN NOT NULL DEFAULT FALSE,
   medical_notes TEXT,
   emergency_contact_name VARCHAR(150),
   emergency_contact_number VARCHAR(30),

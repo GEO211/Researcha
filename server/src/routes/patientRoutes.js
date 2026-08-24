@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { createPatient, getPatient, listPatients, updatePatient } from '../lib/supabase/store.js';
+import { createPatient, getPatient, listHealthCenters, listPatients, updatePatient } from '../lib/supabase/store.js';
+import { findHealthCenterForBarangay } from '../data/koronadalBarangays.js';
 import { audit } from '../services/auditService.js';
 
 const router = Router();
@@ -23,6 +24,10 @@ const patientSchema = z.object({
   is_senior: z.boolean().default(false),
   is_pregnant: z.boolean().default(false),
   is_pwd: z.boolean().default(false),
+  is_child: z.boolean().default(false),
+  is_infant: z.boolean().default(false),
+  is_indigenous: z.boolean().default(false),
+  is_solo_parent: z.boolean().default(false),
   medical_notes: z.string().optional().nullable(),
   emergency_contact_name: z.string().optional().nullable(),
   emergency_contact_number: z.string().optional().nullable(),
@@ -55,9 +60,13 @@ router.get('/', authenticate, authorize('super_admin', 'barangay_staff', 'city_s
 router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async (req, res, next) => {
   try {
     const parsed = patientSchema.parse(req.body);
+    const centers = await listHealthCenters();
+    const matchedCenter = findHealthCenterForBarangay(parsed.address, centers);
     const data = {
       ...parsed,
-      health_center_id: req.user.role === 'barangay_staff' ? req.user.health_center_id : parsed.health_center_id,
+      health_center_id: req.user.role === 'barangay_staff'
+        ? req.user.health_center_id
+        : (matchedCenter?.id || parsed.health_center_id),
       middle_name: parsed.middle_name || null,
       contact_number: parsed.contact_number || null,
       email: parsed.email || null,
