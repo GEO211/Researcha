@@ -19,7 +19,7 @@ import evaluationRoutes from './routes/evaluationRoutes.js';
 import emailRoutes from './routes/emailRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
-import { checkDatabaseConnection } from './config/db.js';
+import { checkDatabaseConnection, hasRemoteCredentials } from './config/db.js';
 
 dotenv.config();
 
@@ -51,8 +51,25 @@ app.use(express.json({ limit: '1mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 app.get('/api/health', async (_req, res) => {
-  const dbOk = await checkDatabaseConnection().catch(() => false);
-  res.json({ status: 'ok', service: 'CareLink API', database: dbOk ? 'supabase' : 'unavailable' });
+  let database = 'unavailable';
+  let database_error;
+  try {
+    const dbOk = await checkDatabaseConnection();
+    database = dbOk ? 'supabase' : 'unavailable';
+  } catch (error) {
+    database_error = error.message || 'Database connection failed.';
+    if (!hasRemoteCredentials()) {
+      database_error = 'Missing SUPABASE_DB_PASSWORD or DATABASE_URL in Vercel environment variables.';
+    }
+  }
+
+  res.json({
+    status: 'ok',
+    service: 'CareLink API',
+    database,
+    ...(database_error ? { database_error } : {}),
+    vercel: Boolean(process.env.VERCEL),
+  });
 });
 
 app.use('/api/auth', authRoutes);

@@ -4,12 +4,22 @@ export function notFound(req, res) {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` });
 }
 
+function isDatabaseError(error) {
+  if (!error) return false;
+  if (['28P01', '28000', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET'].includes(error.code)) {
+    return true;
+  }
+  const message = String(error.message || '');
+  return /supabase|postgres|database|credentials missing|could not reach/i.test(message);
+}
+
 export function errorHandler(error, req, res, _next) {
   if (error instanceof ZodError) {
+    const issues = Array.isArray(error.issues) ? error.issues : [];
     return res.status(400).json({
       message: 'Validation failed.',
-      issues: error.issues.map((issue) => ({
-        field: issue.path.join('.'),
+      issues: issues.map((issue) => ({
+        field: Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path || ''),
         message: issue.message,
       })),
     });
@@ -25,19 +35,21 @@ export function errorHandler(error, req, res, _next) {
 
   if (error.code === '28P01' || error.code === '28000') {
     return res.status(503).json({
-      message: 'Database authentication failed. Set a real DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.',
+      message: 'Database authentication failed. Set SUPABASE_DB_PASSWORD (or DATABASE_URL) in Vercel env vars.',
     });
   }
 
-  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET'].includes(error.code)) {
-    return res.status(503).json({ message: 'Database is unavailable. Check the PostgreSQL connection in server/.env.' });
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET'].includes(error.code) || isDatabaseError(error)) {
+    return res.status(503).json({
+      message: error.message || 'Database is unavailable. Check Supabase env vars on Vercel and redeploy.',
+    });
   }
 
   const status = error.status || 500;
-  const isProduction = process.env.NODE_ENV === 'production';
+  console.error('[CareLink API]', error);
 
   return res.status(status).json({
     message: status === 500 ? 'Unexpected server error.' : error.message,
-    details: isProduction ? undefined : error.stack,
+    details: process.env.NODE_ENV === 'production' ? undefined : error.stack,
   });
 }

@@ -19,7 +19,11 @@ function supabaseProjectRef() {
   }
 }
 
-function hasRemoteCredentials() {
+function isServerless() {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
+export function hasRemoteCredentials() {
   const databaseUrl = process.env.DATABASE_URL || '';
   const password = process.env.SUPABASE_DB_PASSWORD || '';
   if (databaseUrl && !PLACEHOLDER_RE.test(databaseUrl)) return true;
@@ -41,11 +45,18 @@ function connectionCandidates() {
   const poolerHost = process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ap-southeast-1.pooler.supabase.com';
   const preferPooler = process.env.SUPABASE_DB_USE_POOLER !== 'false';
   const poolerUser = `postgres.${ref}`;
-  const poolerUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:5432/${database}`;
+  // Session mode :5432 — long-lived hosts. Transaction mode :6543 — Vercel/serverless.
+  const sessionUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:5432/${database}`;
+  const transactionUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:6543/${database}`;
   const directUrl = `postgresql://postgres:${password}@db.${ref}.supabase.co:5432/${database}`;
 
-  if (preferPooler) urls.push(poolerUrl, directUrl);
-  else urls.push(directUrl, poolerUrl);
+  if (isServerless()) {
+    urls.push(transactionUrl, sessionUrl, directUrl);
+  } else if (preferPooler) {
+    urls.push(sessionUrl, transactionUrl, directUrl);
+  } else {
+    urls.push(directUrl, sessionUrl, transactionUrl);
+  }
 
   return [...new Set(urls)];
 }
@@ -70,12 +81,14 @@ function attachTransaction(pool) {
 
 async function connectSupabasePool() {
   if (!hasRemoteCredentials()) {
-    throw new Error('Supabase credentials are missing. Set DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.');
+    throw new Error(
+      'Database credentials missing. On Vercel, set SUPABASE_DB_PASSWORD (or DATABASE_URL) in Project → Settings → Environment Variables, then redeploy.',
+    );
   }
 
   const urls = connectionCandidates();
   if (!urls.length) {
-    throw new Error('Set DATABASE_URL or SUPABASE_DB_PASSWORD in server/.env.');
+    throw new Error('Set DATABASE_URL or SUPABASE_DB_PASSWORD in the environment.');
   }
 
   const errors = [];
@@ -83,9 +96,10 @@ async function connectSupabasePool() {
     const pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
-      max: process.env.VERCEL ? 1 : 10,
-      idleTimeoutMillis: process.env.VERCEL ? 5_000 : 30_000,
+      max: isServerless() ? 1 : 10,
+      idleTimeoutMillis: isServerless() ? 5_000 : 30_000,
       connectionTimeoutMillis: 12_000,
+      allowExitOnIdle: isServerless(),
     });
     try {
       await pool.query('SELECT 1 AS ok');
@@ -101,21 +115,35 @@ async function connectSupabasePool() {
 
 function createDeferredPool() {
   let impl = null;
+  let connectError = null;
   const ready = (async () => {
-    impl = await connectSupabasePool();
-    if (process.env.NODE_ENV !== 'test') {
-      console.log('Supabase PostgreSQL connected');
+    try {
+      impl = await connectSupabasePool();
+      connectError = null;
+      if (process.env.NODE_ENV !== 'test') {
+        console.log('Supabase PostgreSQL connected');
+      }
+      return impl;
+    } catch (error) {
+      connectError = error;
+      throw error;
     }
-    return impl;
   })();
 
   const call = (method) => async (...args) => {
-    const target = impl || (await ready);
-    return target[method](...args);
+    try {
+      const target = impl || (await ready);
+      return target[method](...args);
+    } catch (error) {
+      throw connectError || error;
+    }
   };
 
   return {
     ready,
+    get lastError() {
+      return connectError;
+    },
     query: call('query'),
     connect: call('connect'),
     end: call('end'),

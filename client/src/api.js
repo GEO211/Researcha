@@ -56,10 +56,10 @@ export async function api(path, options = {}) {
 
     const message = response.status === 405
       ? 'API returned 405. Redeploy with the Vercel api/ function and set server env vars in the Vercel dashboard.'
-      : (data.message || 'Request failed.');
+      : (data?.message || 'Request failed.');
     const error = new Error(message);
     error.status = response.status;
-    error.issues = data.issues || [];
+    error.issues = Array.isArray(data?.issues) ? data.issues : [];
     throw error;
   }
 
