@@ -8,6 +8,7 @@
     "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "start": "npm run start --prefix server",
     "build": "npm install --prefix client && npm run build --prefix client",
+    "vercel-build": "npm run build --prefix client",
     "deploy:github": "node scripts/deploy-github.mjs",
     "ai:dev": "cd ai && .venv/Scripts/uvicorn.exe main:app --reload --port 8001",
     "lint": "npm run lint --prefix client"

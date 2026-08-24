@@ -83,7 +83,8 @@ async function connectSupabasePool() {
     const pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
-      max: 10,
+      max: process.env.VERCEL ? 1 : 10,
+      idleTimeoutMillis: process.env.VERCEL ? 5_000 : 30_000,
       connectionTimeoutMillis: 12_000,
     });
     try {

@@ -7,16 +7,15 @@ function resolveApiBase() {
     return configured || '/api';
   }
 
-  // Production builds must point at the live Express host (Render/Railway/etc.).
-  // Relative "/api" hits the Vercel static site and returns 405 on POST.
-  if (configured.startsWith('http://') || configured.startsWith('https://')) {
-    return configured;
+  // Same-origin on Vercel (api/ serverless) or a full remote API URL.
+  if (!configured || configured === '/api' || configured.startsWith('http://') || configured.startsWith('https://')) {
+    return configured || '/api';
   }
 
-  console.error(
-    `[CareLink] Missing VITE_API_BASE_URL. Set it in Vercel to your API URL, e.g. https://your-api.onrender.com/api (site: ${SITE_URL}).`,
+  console.warn(
+    `[CareLink] Unexpected VITE_API_BASE_URL="${configured}". Use /api (Vercel) or https://host/api. Site: ${SITE_URL}`,
   );
-  return '';
+  return configured;
 }
 
 const API_BASE = resolveApiBase();
@@ -35,15 +34,6 @@ export function clearSession() {
 }
 
 export async function api(path, options = {}) {
-  if (!API_BASE) {
-    const error = new Error(
-      'API is not configured. Set VITE_API_BASE_URL in Vercel to your live API URL (e.g. https://your-api.onrender.com/api), then redeploy.',
-    );
-    error.status = 0;
-    error.issues = [];
-    throw error;
-  }
-
   const session = getStoredSession();
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -65,7 +55,7 @@ export async function api(path, options = {}) {
     }
 
     const message = response.status === 405
-      ? 'API not reachable (405). Deploy the Express server and set VITE_API_BASE_URL to that host, then redeploy the frontend.'
+      ? 'API returned 405. Redeploy with the Vercel api/ function and set server env vars in the Vercel dashboard.'
       : (data.message || 'Request failed.');
     const error = new Error(message);
     error.status = response.status;
@@ -77,10 +67,6 @@ export async function api(path, options = {}) {
 }
 
 export async function downloadCsv(path) {
-  if (!API_BASE) {
-    throw new Error('API is not configured. Set VITE_API_BASE_URL in Vercel, then redeploy.');
-  }
-
   const session = getStoredSession();
   const response = await fetch(`${API_BASE}${path}`, {
     headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},
