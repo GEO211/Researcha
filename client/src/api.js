@@ -7,15 +7,16 @@ function resolveApiBase() {
     return configured || '/api';
   }
 
-  // Production (https://carelink-bay.vercel.app) — require full API URL in Vercel env.
-  if (configured.startsWith('http')) {
+  // Production builds must point at the live Express host (Render/Railway/etc.).
+  // Relative "/api" hits the Vercel static site and returns 405 on POST.
+  if (configured.startsWith('http://') || configured.startsWith('https://')) {
     return configured;
   }
 
-  console.warn(
-    `[CareLink] Set VITE_API_BASE_URL in Vercel to your live API URL. Site: ${SITE_URL}`,
+  console.error(
+    `[CareLink] Missing VITE_API_BASE_URL. Set it in Vercel to your API URL, e.g. https://your-api.onrender.com/api (site: ${SITE_URL}).`,
   );
-  return configured;
+  return '';
 }
 
 const API_BASE = resolveApiBase();
@@ -34,6 +35,15 @@ export function clearSession() {
 }
 
 export async function api(path, options = {}) {
+  if (!API_BASE) {
+    const error = new Error(
+      'API is not configured. Set VITE_API_BASE_URL in Vercel to your live API URL (e.g. https://your-api.onrender.com/api), then redeploy.',
+    );
+    error.status = 0;
+    error.issues = [];
+    throw error;
+  }
+
   const session = getStoredSession();
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -54,7 +64,10 @@ export async function api(path, options = {}) {
       }
     }
 
-    const error = new Error(data.message || 'Request failed.');
+    const message = response.status === 405
+      ? 'API not reachable (405). Deploy the Express server and set VITE_API_BASE_URL to that host, then redeploy the frontend.'
+      : (data.message || 'Request failed.');
+    const error = new Error(message);
     error.status = response.status;
     error.issues = data.issues || [];
     throw error;
@@ -64,6 +77,10 @@ export async function api(path, options = {}) {
 }
 
 export async function downloadCsv(path) {
+  if (!API_BASE) {
+    throw new Error('API is not configured. Set VITE_API_BASE_URL in Vercel, then redeploy.');
+  }
+
   const session = getStoredSession();
   const response = await fetch(`${API_BASE}${path}`, {
     headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},

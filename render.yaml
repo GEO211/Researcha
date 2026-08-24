@@ -14,18 +14,34 @@ services:
         value: https://carelink-bay.vercel.app
       - key: APP_PUBLIC_URL
         value: https://carelink-bay.vercel.app
-      - key: FIREBASE_PROJECT_ID
-        value: carelink-8e494
+      - key: APP_TIMEZONE
+        value: Asia/Manila
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 8h
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_DB_USE_POOLER
+        value: "true"
+      - key: SUPABASE_DB_POOLER_HOST
+        value: aws-0-ap-southeast-1.pooler.supabase.com
+      - key: SUPABASE_DB_PASSWORD
+        sync: false
       - key: AI_API_URL
         sync: false
-      - key: FIREBASE_CLIENT_EMAIL
+      - key: UNISMS_SECRET_KEY
         sync: false
-      - key: FIREBASE_PRIVATE_KEY
-        sync: false
+      - key: UNISMS_SENDER_ID
+        value: Unisoft
+      - key: SMS_BRAND_NAME
+        value: CareLink
+      - key: SMS_INCLUDE_LINKS
+        value: "true"
 
   - type: web
     name: carelink-ai
@@ -37,7 +53,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.14.3
+        value: "3.12.8"
       - key: CLIENT_ORIGIN
         value: https://carelink-bay.vercel.app
       - key: DATABASE_URL
