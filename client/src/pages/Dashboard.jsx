@@ -1005,8 +1005,9 @@ function HorizontalBars({ title, rows, labelKey, valueKey }) {
 }
 
 function DonutSummary({ title, rows, labelKey, valueKey }) {
-  const total = chartTotal(rows, valueKey);
-  const top = [...rows].sort((a, b) => Number(b[valueKey] || 0) - Number(a[valueKey] || 0))[0];
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const total = chartTotal(safeRows, valueKey);
+  const top = [...safeRows].sort((a, b) => Number(b[valueKey] || 0) - Number(a[valueKey] || 0))[0];
 
   return (
     <Card title={title} icon={Activity}>

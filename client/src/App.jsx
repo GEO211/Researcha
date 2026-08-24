@@ -71,12 +71,33 @@ function App() {
       const patientQuery = new URLSearchParams(
         Object.fromEntries(Object.entries(patientFilters).filter(([, value]) => value)),
       ).toString();
-      const baseRequests = [
+
+      // Load core screens first so one slow endpoint cannot blank the whole app.
+      const core = await Promise.allSettled([
         api('/dashboard/summary'),
         api(`/patients${patientQuery ? `?${patientQuery}` : ''}`),
         api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`),
         api('/health-centers'),
-      ];
+      ]);
+
+      const [summaryData, patientData, referralData, centerData] = core.map((result, index) => {
+        if (result.status === 'fulfilled') return result.value;
+        const labels = ['dashboard', 'patients', 'referrals', 'health centers'];
+        console.error(`[CareLink] Failed to load ${labels[index]}:`, result.reason);
+        return null;
+      });
+
+      if (summaryData) setSummary(summaryData);
+      setPatients(patientData?.patients || []);
+      setReferrals(referralData?.referrals || []);
+      setHealthCenters(centerData?.healthCenters || []);
+
+      const failedCore = core.findIndex((result) => result.status === 'rejected');
+      if (failedCore !== -1) {
+        const labels = ['Dashboard', 'Patients', 'Referrals', 'Health centers'];
+        setError(core[failedCore].reason?.message || `${labels[failedCore]} failed to load.`);
+      }
+
       const reviewRequests = canUseQueue
         ? [
             api('/queue'),
@@ -87,11 +108,8 @@ function App() {
         ? [api('/users'), api('/settings'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
         : [Promise.resolve({ users: [] }), Promise.resolve({ settings: [], rules: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
 
+      const secondary = await Promise.allSettled([...reviewRequests, ...adminRequests]);
       const [
-        summaryData,
-        patientData,
-        referralData,
-        centerData,
         queueData,
         analyticsData,
         evaluationResponse,
@@ -100,12 +118,8 @@ function App() {
         smsLogData,
         auditLogData,
         emailLogData,
-      ] = await Promise.all([...baseRequests, ...reviewRequests, ...adminRequests]);
+      ] = secondary.map((result) => (result.status === 'fulfilled' ? result.value : null));
 
-      setSummary(summaryData);
-      setPatients(patientData.patients || []);
-      setReferrals(referralData.referrals || []);
-      setHealthCenters(centerData.healthCenters || []);
       setQueue(queueData?.queue || []);
       setAnalytics(analyticsData || {});
       setUsers(userData?.users || []);

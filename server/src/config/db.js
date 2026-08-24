@@ -130,7 +130,7 @@ async function connectSupabasePool() {
     const pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false },
-      max: isServerless() ? 1 : 10,
+      max: isServerless() ? 4 : 10,
       idleTimeoutMillis: isServerless() ? 5_000 : 30_000,
       connectionTimeoutMillis: 12_000,
       allowExitOnIdle: isServerless(),

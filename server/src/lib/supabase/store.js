@@ -96,7 +96,7 @@ async function txSelectOne(client, sql, params = []) {
   return rows[0] || null;
 }
 
-async function applyReferralExpiry(referral, queue) {
+async function applyReferralExpiry(referral, queue, { persist = true } = {}) {
   if (!EXPIRABLE_REFERRAL_STATUSES.includes(referral.status) || !queue?.queue_date) {
     return { referral, queue };
   }
@@ -107,38 +107,37 @@ async function applyReferralExpiry(referral, queue) {
   }
 
   const ts = nowIso();
-  await query(
-    `UPDATE ${TABLES.referrals} SET status = 'expired', updated_at = $1 WHERE id = $2`,
-    [ts, referral.id],
-  );
+  const nextReferral = { ...referral, status: 'expired', updated_at: ts };
+  const nextQueue = queue?.id
+    ? { ...queue, queue_status: 'expired', updated_at: ts }
+    : queue;
 
-  let nextQueue = queue;
-  if (queue?.id) {
+  if (persist) {
     await query(
-      `UPDATE ${TABLES.queueEntries} SET queue_status = 'expired', updated_at = $1 WHERE id = $2`,
-      [ts, queue.id],
+      `UPDATE ${TABLES.referrals} SET status = 'expired', updated_at = $1 WHERE id = $2`,
+      [ts, referral.id],
     );
-    nextQueue = { ...queue, queue_status: 'expired', updated_at: ts };
+    if (queue?.id) {
+      await query(
+        `UPDATE ${TABLES.queueEntries} SET queue_status = 'expired', updated_at = $1 WHERE id = $2`,
+        [ts, queue.id],
+      );
+    }
   }
 
-  return {
-    referral: { ...referral, status: 'expired', updated_at: ts },
-    queue: nextQueue,
-  };
+  return { referral: nextReferral, queue: nextQueue };
 }
 
-async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}) {
+function enrichReferralRecord(referral, { patientMap, centerMap, queueMap } = {}) {
   const patientId = Number(referral.patient_id);
   const referralId = Number(referral.id);
-  const patient = patientMap?.get(patientId) || await getPatient(patientId);
-  const fromCenter = centerMap?.get(Number(referral.referring_health_center_id))
-    || await getHealthCenter(referral.referring_health_center_id);
-  const toCenter = centerMap?.get(Number(referral.receiving_health_center_id))
-    || await getHealthCenter(referral.receiving_health_center_id);
-  let queue = queueMap?.get(referralId)
-    || await selectOne(`SELECT * FROM ${TABLES.queueEntries} WHERE referral_id = $1 LIMIT 1`, [referralId]);
+  const patient = patientMap?.get(patientId) || null;
+  const fromCenter = centerMap?.get(Number(referral.referring_health_center_id)) || null;
+  const toCenter = centerMap?.get(Number(referral.receiving_health_center_id)) || null;
+  let queue = queueMap?.get(referralId) || null;
 
-  const expired = await applyReferralExpiry(referral, queue);
+  // Soft-expire in memory during bulk lists (no per-row DB writes).
+  const expired = applyReferralExpirySync(referral, queue);
   referral = expired.referral;
   queue = expired.queue;
 
@@ -174,6 +173,71 @@ async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}
     appointment_at: appointmentAt,
     appointment_time: appointmentAt,
     is_expired: referral.status === 'expired',
+  };
+}
+
+function applyReferralExpirySync(referral, queue) {
+  if (!EXPIRABLE_REFERRAL_STATUSES.includes(referral.status) || !queue?.queue_date) {
+    return { referral, queue };
+  }
+  const queueDate = toDateString(queue.queue_date);
+  if (!isQueueDateExpired(queueDate)) {
+    return { referral, queue };
+  }
+  const ts = nowIso();
+  return {
+    referral: { ...referral, status: 'expired', updated_at: ts },
+    queue: queue?.id ? { ...queue, queue_status: 'expired', updated_at: ts } : queue,
+  };
+}
+
+async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}) {
+  const patientId = Number(referral.patient_id);
+  const referralId = Number(referral.id);
+  const patient = patientMap?.get(patientId) || await getPatient(patientId);
+  const fromCenter = centerMap?.get(Number(referral.referring_health_center_id))
+    || await getHealthCenter(referral.referring_health_center_id);
+  const toCenter = centerMap?.get(Number(referral.receiving_health_center_id))
+    || await getHealthCenter(referral.receiving_health_center_id);
+  let queue = queueMap?.get(referralId)
+    || await selectOne(`SELECT * FROM ${TABLES.queueEntries} WHERE referral_id = $1 LIMIT 1`, [referralId]);
+
+  const expired = await applyReferralExpiry(referral, queue, { persist: true });
+  const nextReferral = expired.referral;
+  queue = expired.queue;
+
+  const queueDate = getReferralQueueDate(nextReferral, queue);
+  const appointmentAt = nextReferral.appointment_at ? normalizeAppointmentAt(nextReferral.appointment_at) : null;
+
+  return {
+    ...nextReferral,
+    tracking_code: nextReferral.referral_code,
+    patient_name: patient ? `${patient.first_name} ${patient.last_name}`.trim() : null,
+    first_name: patient?.first_name,
+    last_name: patient?.last_name,
+    contact_number: patient?.contact_number,
+    is_senior: patient?.is_senior,
+    is_pregnant: patient?.is_pregnant,
+    is_pwd: patient?.is_pwd,
+    is_child: patient?.is_child,
+    is_infant: patient?.is_infant,
+    is_indigenous: patient?.is_indigenous,
+    is_solo_parent: patient?.is_solo_parent,
+    email: patient?.email,
+    referring_center_name: fromCenter?.name,
+    receiving_center_name: toCenter?.name,
+    home_barangay: patient?.address || fromCenter?.barangay_name || null,
+    checkup_location: toCenter?.name || null,
+    checkup_barangay: toCenter?.barangay_name || toCenter?.name || null,
+    queue_number: queue?.queue_number || null,
+    priority_level: queue?.priority_level || null,
+    priority_score: queue?.priority_score ?? null,
+    queue_status: queue?.queue_status || null,
+    queue_date: queueDate,
+    queue_entry_id: queue?.id || null,
+    appointment_at: appointmentAt,
+    appointment_time: appointmentAt,
+    is_expired: nextReferral.status === 'expired',
   };
 }
 
@@ -335,11 +399,29 @@ export async function updatePatient(id, data) {
 }
 
 export async function listReferrals(filters = {}) {
-  const [referrals, patients, centers, queues] = await Promise.all([
-    select(`SELECT * FROM ${TABLES.referrals}`),
-    select(`SELECT * FROM ${TABLES.patients}`),
+  const limit = Math.min(Math.max(Number(filters.limit) || 300, 1), 1000);
+
+  let referralSql = `SELECT * FROM ${TABLES.referrals}`;
+  const referralParams = [];
+  if (filters.healthCenterId) {
+    referralParams.push(Number(filters.healthCenterId));
+    referralSql += ` WHERE referring_health_center_id = $1 OR receiving_health_center_id = $1`;
+  }
+  referralSql += ` ORDER BY created_at DESC LIMIT $${referralParams.length + 1}`;
+  referralParams.push(limit);
+
+  const referrals = await select(referralSql, referralParams);
+  const referralIds = referrals.map((row) => Number(row.id)).filter(Boolean);
+  const patientIds = [...new Set(referrals.map((row) => Number(row.patient_id)).filter(Boolean))];
+
+  const [patients, centers, queues] = await Promise.all([
+    patientIds.length
+      ? select(`SELECT * FROM ${TABLES.patients} WHERE id = ANY($1::int[])`, [patientIds])
+      : Promise.resolve([]),
     select(`SELECT * FROM ${TABLES.healthCenters}`),
-    select(`SELECT * FROM ${TABLES.queueEntries}`),
+    referralIds.length
+      ? select(`SELECT * FROM ${TABLES.queueEntries} WHERE referral_id = ANY($1::int[])`, [referralIds])
+      : Promise.resolve([]),
   ]);
 
   const patientMap = new Map(patients.map((p) => [Number(p.id), p]));
@@ -347,12 +429,6 @@ export async function listReferrals(filters = {}) {
   const queueMap = new Map(queues.map((q) => [Number(q.referral_id), q]));
 
   let rows = referrals;
-  if (filters.healthCenterId) {
-    rows = rows.filter((r) =>
-      Number(r.referring_health_center_id) === Number(filters.healthCenterId)
-      || Number(r.receiving_health_center_id) === Number(filters.healthCenterId),
-    );
-  }
   if (filters.priorityLevel) {
     rows = rows.filter((r) => queueMap.get(Number(r.id))?.priority_level === filters.priorityLevel);
   }
@@ -366,9 +442,8 @@ export async function listReferrals(filters = {}) {
     });
   }
 
-  rows = await Promise.all(rows.map((r) => enrichReferral(r, { patientMap, centerMap, queueMap })));
+  rows = rows.map((r) => enrichReferralRecord(r, { patientMap, centerMap, queueMap }));
   if (filters.status) rows = rows.filter((r) => r.status === filters.status);
-  // Return full live referral records (no artificial 100-row cap).
   return rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
