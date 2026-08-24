@@ -29,7 +29,7 @@ services:
       - key: SUPABASE_DB_USE_POOLER
         value: "true"
       - key: SUPABASE_DB_POOLER_HOST
-        value: aws-0-ap-southeast-1.pooler.supabase.com
+        value: aws-1-ap-southeast-1.pooler.supabase.com
       - key: SUPABASE_DB_PASSWORD
         sync: false
       - key: AI_API_URL

@@ -9,6 +9,7 @@ dotenv.config({ path: path.resolve(serverRoot, '.env') });
 
 const { Pool } = pg;
 const PLACEHOLDER_RE = /your-password|changeme|example\.com|YOUR_PASSWORD/i;
+const DEFAULT_POOLER_HOST = 'aws-1-ap-southeast-1.pooler.supabase.com';
 
 function supabaseProjectRef() {
   const url = process.env.SUPABASE_URL || 'https://oejvlgmoxefwwawqdpwo.supabase.co';
@@ -23,6 +24,10 @@ function isServerless() {
   return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
+function isDirectSupabaseHost(connectionString) {
+  return /@db\.[a-z0-9]+\.supabase\.co/i.test(connectionString || '');
+}
+
 export function hasRemoteCredentials() {
   const databaseUrl = process.env.DATABASE_URL || '';
   const password = process.env.SUPABASE_DB_PASSWORD || '';
@@ -31,10 +36,24 @@ export function hasRemoteCredentials() {
   return false;
 }
 
+function poolerHosts() {
+  const configured = (process.env.SUPABASE_DB_POOLER_HOST || '').trim();
+  const hosts = [
+    configured,
+    DEFAULT_POOLER_HOST,
+    'aws-0-ap-southeast-1.pooler.supabase.com',
+  ].filter(Boolean);
+  return [...new Set(hosts)];
+}
+
 function connectionCandidates() {
   const urls = [];
-  if (process.env.DATABASE_URL && !PLACEHOLDER_RE.test(process.env.DATABASE_URL)) {
-    urls.push(process.env.DATABASE_URL);
+  const databaseUrl = process.env.DATABASE_URL || '';
+  if (databaseUrl && !PLACEHOLDER_RE.test(databaseUrl)) {
+    // Vercel often cannot resolve IPv6-only db.*.supabase.co hosts.
+    if (!(isServerless() && isDirectSupabaseHost(databaseUrl))) {
+      urls.push(databaseUrl);
+    }
   }
 
   const password = encodeURIComponent(process.env.SUPABASE_DB_PASSWORD || '');
@@ -42,23 +61,36 @@ function connectionCandidates() {
 
   const ref = supabaseProjectRef();
   const database = process.env.SUPABASE_DB_NAME || 'postgres';
-  const poolerHost = process.env.SUPABASE_DB_POOLER_HOST || 'aws-0-ap-southeast-1.pooler.supabase.com';
   const preferPooler = process.env.SUPABASE_DB_USE_POOLER !== 'false';
   const poolerUser = `postgres.${ref}`;
-  // Session mode :5432 — long-lived hosts. Transaction mode :6543 — Vercel/serverless.
-  const sessionUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:5432/${database}`;
-  const transactionUrl = `postgresql://${poolerUser}:${password}@${poolerHost}:6543/${database}`;
+  const hosts = poolerHosts();
+
+  const poolerUrls = [];
+  for (const host of hosts) {
+    // Transaction :6543 for serverless; Session :5432 for long-lived Node.
+    poolerUrls.push(`postgresql://${poolerUser}:${password}@${host}:6543/${database}`);
+    poolerUrls.push(`postgresql://${poolerUser}:${password}@${host}:5432/${database}`);
+  }
+
   const directUrl = `postgresql://postgres:${password}@db.${ref}.supabase.co:5432/${database}`;
 
-  if (isServerless()) {
-    urls.push(transactionUrl, sessionUrl, directUrl);
-  } else if (preferPooler) {
-    urls.push(sessionUrl, transactionUrl, directUrl);
+  if (isServerless() || preferPooler) {
+    urls.push(...poolerUrls);
+    if (!isServerless()) urls.push(directUrl);
   } else {
-    urls.push(directUrl, sessionUrl, transactionUrl);
+    urls.push(directUrl, ...poolerUrls);
   }
 
   return [...new Set(urls)];
+}
+
+function shortTarget(connectionString) {
+  try {
+    const parsed = new URL(connectionString);
+    return `${parsed.hostname}:${parsed.port || '5432'}`;
+  } catch {
+    return 'unknown';
+  }
 }
 
 function attachTransaction(pool) {
@@ -82,13 +114,15 @@ function attachTransaction(pool) {
 async function connectSupabasePool() {
   if (!hasRemoteCredentials()) {
     throw new Error(
-      'Database credentials missing. On Vercel, set SUPABASE_DB_PASSWORD (or DATABASE_URL) in Project → Settings → Environment Variables, then redeploy.',
+      'Database credentials missing. On Vercel, set SUPABASE_DB_PASSWORD and SUPABASE_DB_POOLER_HOST in Environment Variables, then redeploy.',
     );
   }
 
   const urls = connectionCandidates();
   if (!urls.length) {
-    throw new Error('Set DATABASE_URL or SUPABASE_DB_PASSWORD in the environment.');
+    throw new Error(
+      'No usable database URLs. Set SUPABASE_DB_PASSWORD + SUPABASE_DB_POOLER_HOST (not the db.*.supabase.co direct host) on Vercel.',
+    );
   }
 
   const errors = [];
@@ -103,14 +137,17 @@ async function connectSupabasePool() {
     });
     try {
       await pool.query('SELECT 1 AS ok');
+      if (process.env.NODE_ENV !== 'test') {
+        console.log(`Supabase PostgreSQL connected via ${shortTarget(connectionString)}`);
+      }
       return attachTransaction(pool);
     } catch (error) {
-      errors.push(error.message);
+      errors.push(`${shortTarget(connectionString)}: ${error.message}`);
       await pool.end().catch(() => {});
     }
   }
 
-  throw new Error(`Could not reach Supabase Postgres. ${errors.at(-1) || ''}`.trim());
+  throw new Error(`Could not reach Supabase Postgres. ${errors.slice(0, 3).join(' | ')}`);
 }
 
 function createDeferredPool() {
@@ -120,9 +157,6 @@ function createDeferredPool() {
     try {
       impl = await connectSupabasePool();
       connectError = null;
-      if (process.env.NODE_ENV !== 'test') {
-        console.log('Supabase PostgreSQL connected');
-      }
       return impl;
     } catch (error) {
       connectError = error;
