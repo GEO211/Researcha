@@ -1,26 +1,42 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate, authorize } from '../middleware/auth.js';
-import { createPatient, getPatient, listHealthCenters, listPatients, updatePatient } from '../lib/supabase/store.js';
+import { authenticate, authorize, preventProfessionalSelfAccess } from '../middleware/auth.js';
+import { createPatient, findExistingPatient, getPatient, listHealthCenters, listPatients, updatePatient } from '../lib/supabase/store.js';
 import { findHealthCenterForBarangay } from '../data/koronadalBarangays.js';
 import { audit } from '../services/auditService.js';
 
 const router = Router();
 
+const personNameSchema = (label = 'Name') => z.string().trim().min(1).refine((value) => !/\d/.test(value), {
+  message: `${label} must not contain numbers.`,
+});
+
+const phoneSchema = z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || /^\+?[0-9\s-]+$/.test(value), {
+  message: 'Phone number can only contain digits, spaces, +, and -.',
+});
+
 const patientSchema = z.object({
   health_center_id: z.coerce.number().int().positive().optional(),
-  first_name: z.string().min(1),
-  middle_name: z.string().optional().nullable(),
-  last_name: z.string().min(1),
+  first_name: personNameSchema('First name').min(1),
+  middle_name: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
+    message: 'Middle name must not contain numbers.',
+  }),
+  last_name: personNameSchema('Last name').min(1),
   birth_date: z.string().min(10),
   sex: z.enum(['female', 'male', 'other']),
-  contact_number: z.string().optional().nullable(),
+  contact_number: phoneSchema,
   email: z.string().email().optional().nullable().or(z.literal('')),
   address: z.string().min(2),
   address2: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  postal_code: z.string().optional().nullable(),
-  province: z.string().optional().nullable(),
+  city: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
+    message: 'City must not contain numbers.',
+  }),
+  postal_code: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || /^\d+$/.test(value), {
+    message: 'Postal code must contain only numbers.',
+  }),
+  province: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
+    message: 'Province must not contain numbers.',
+  }),
   is_senior: z.boolean().default(false),
   is_pregnant: z.boolean().default(false),
   is_pwd: z.boolean().default(false),
@@ -29,8 +45,10 @@ const patientSchema = z.object({
   is_indigenous: z.boolean().default(false),
   is_solo_parent: z.boolean().default(false),
   medical_notes: z.string().optional().nullable(),
-  emergency_contact_name: z.string().optional().nullable(),
-  emergency_contact_number: z.string().optional().nullable(),
+  emergency_contact_name: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
+    message: 'Emergency contact name must not contain numbers.',
+  }),
+  emergency_contact_number: phoneSchema,
 });
 
 function buildFilters(req) {
@@ -83,6 +101,13 @@ router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async
       return res.status(400).json({ message: 'health_center_id is required.' });
     }
 
+    const existing = await findExistingPatient(data);
+    if (existing) {
+      return res.status(409).json({
+        message: `Patient already registered: ${existing.first_name} ${existing.last_name} (${existing.birth_date}). Please use the existing record instead.`,
+      });
+    }
+
     const created = await createPatient(data);
     await audit(req, 'patient.created', 'patient', created.id, null, data);
     res.status(201).json(created);
@@ -104,6 +129,10 @@ router.get('/:id', authenticate, authorize('super_admin', 'barangay_staff', 'cit
       return res.status(403).json({ message: 'Patient belongs to another health center.' });
     }
 
+    if (preventProfessionalSelfAccess(req, patient)) {
+      return res.status(403).json({ message: 'City health staff cannot access or modify personal medical records under professional credentials.' });
+    }
+
     return res.json({ patient });
   } catch (error) {
     return next(error);
@@ -122,6 +151,10 @@ router.patch('/:id', authenticate, authorize('super_admin', 'barangay_staff'), a
 
     if (req.user.role === 'barangay_staff' && existing.health_center_id !== req.user.health_center_id) {
       return res.status(403).json({ message: 'Patient belongs to another health center.' });
+    }
+
+    if (preventProfessionalSelfAccess(req, existing)) {
+      return res.status(403).json({ message: 'City health staff cannot access or modify personal medical records under professional credentials.' });
     }
 
     const nextPatient = {

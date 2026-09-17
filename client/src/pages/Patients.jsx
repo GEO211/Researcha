@@ -212,6 +212,17 @@ function PatientForm({ onCreated, healthCenters, user }) {
       ? user.health_center_id
       : (matchedCenter?.id || defaultHealthCenterId);
 
+    const invalidFields = [];
+    if (!form.first_name.trim()) invalidFields.push('First name is required.');
+    if (!form.last_name.trim()) invalidFields.push('Last name is required.');
+    if (!form.birth_date) invalidFields.push('Birth date is required.');
+    if (/[0-9]/.test(form.first_name) || /[0-9]/.test(form.last_name)) invalidFields.push('Names cannot contain numbers.');
+    if (form.contact_number && /\D/.test(form.contact_number.replace(/[+\-\s]/g, ''))) invalidFields.push('Contact number can only contain digits, spaces, +, and -.');
+    if (invalidFields.length) {
+      setError(invalidFields.join(' '));
+      return;
+    }
+
     try {
       const created = await api('/patients', {
         method: 'POST',
@@ -224,6 +235,7 @@ function PatientForm({ onCreated, healthCenters, user }) {
       setMessage(
         `Patient registered ${formatDateTime(created.created_at)} at ${created.health_center_name || centerName}.`,
       );
+      setError('');
       onCreated();
     } catch (err) {
       const details = err.issues?.length
@@ -237,13 +249,13 @@ function PatientForm({ onCreated, healthCenters, user }) {
     <Card title="Patient Registration" icon={Users}>
       <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
         <Field label="First name">
-          <TextInput value={form.first_name} onChange={(event) => update('first_name', event.target.value)} required />
+          <TextInput value={form.first_name} allowNumbers={false} onChange={(event) => update('first_name', event.target.value)} required />
         </Field>
         <Field label="Middle name">
-          <TextInput value={form.middle_name} onChange={(event) => update('middle_name', event.target.value)} />
+          <TextInput value={form.middle_name} allowNumbers={false} onChange={(event) => update('middle_name', event.target.value)} />
         </Field>
         <Field label="Last name">
-          <TextInput value={form.last_name} onChange={(event) => update('last_name', event.target.value)} required />
+          <TextInput value={form.last_name} allowNumbers={false} onChange={(event) => update('last_name', event.target.value)} required />
         </Field>
         <Field label="Birth date">
           <TextInput type="date" value={form.birth_date} onChange={(event) => update('birth_date', event.target.value)} required />
@@ -256,17 +268,17 @@ function PatientForm({ onCreated, healthCenters, user }) {
           </SelectInput>
         </Field>
         <Field label="Contact number">
-          <TextInput value={form.contact_number} onChange={(event) => update('contact_number', event.target.value)} placeholder="Optional for SMS reminders" />
+          <TextInput value={form.contact_number} numericOnly onChange={(event) => update('contact_number', event.target.value)} placeholder="Optional for SMS reminders" />
         </Field>
         <Field label="Email">
           <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2 md:col-span-2">
           <Field label="Emergency contact name">
-            <TextInput value={form.emergency_contact_name} onChange={(event) => update('emergency_contact_name', event.target.value)} />
+            <TextInput value={form.emergency_contact_name} allowNumbers={false} onChange={(event) => update('emergency_contact_name', event.target.value)} />
           </Field>
           <Field label="Emergency contact number">
-            <TextInput value={form.emergency_contact_number} onChange={(event) => update('emergency_contact_number', event.target.value)} />
+            <TextInput value={form.emergency_contact_number} numericOnly onChange={(event) => update('emergency_contact_number', event.target.value)} />
           </Field>
         </div>
         <Field label="Address 1">
@@ -285,13 +297,13 @@ function PatientForm({ onCreated, healthCenters, user }) {
           <TextInput value={form.address2} onChange={(event) => update('address2', event.target.value)} placeholder="Add (optional)" />
         </Field>
         <Field label="City">
-          <TextInput value={form.city} onChange={(event) => update('city', event.target.value)} />
+          <TextInput value={form.city} allowNumbers={false} onChange={(event) => update('city', event.target.value)} />
         </Field>
         <Field label="Postal code">
-          <TextInput value={form.postal_code} onChange={(event) => update('postal_code', event.target.value)} />
+          <TextInput value={form.postal_code} numericOnly onChange={(event) => update('postal_code', event.target.value)} />
         </Field>
         <Field label="Province">
-          <TextInput value={form.province} onChange={(event) => update('province', event.target.value)} />
+          <TextInput value={form.province} allowNumbers={false} onChange={(event) => update('province', event.target.value)} />
         </Field>
         <RegistrationStamp recordedAt={liveNow} centerName={centerName} />
         <div className="flex flex-wrap gap-3 md:col-span-2">
@@ -426,16 +438,16 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
             <Field label="First name">
-              <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required />
+              <TextInput value={form.first_name} allowNumbers={false} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required />
             </Field>
             <Field label="Last name">
-              <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required />
+              <TextInput value={form.last_name} allowNumbers={false} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required />
             </Field>
             <Field label="Birth date">
               <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} required />
             </Field>
             <Field label="Contact number">
-              <TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} />
+              <TextInput value={form.contact_number} numericOnly onChange={(event) => setForm({ ...form, contact_number: event.target.value })} />
             </Field>
             <Field label="Email">
               <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
@@ -456,13 +468,13 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
               <TextInput value={form.address2} onChange={(event) => setForm({ ...form, address2: event.target.value })} placeholder="Add (optional)" />
             </Field>
             <Field label="City">
-              <TextInput value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
+              <TextInput value={form.city} allowNumbers={false} onChange={(event) => setForm({ ...form, city: event.target.value })} />
             </Field>
             <Field label="Postal code">
-              <TextInput value={form.postal_code} onChange={(event) => setForm({ ...form, postal_code: event.target.value })} />
+              <TextInput value={form.postal_code} numericOnly onChange={(event) => setForm({ ...form, postal_code: event.target.value })} />
             </Field>
             <Field label="Province">
-              <TextInput value={form.province} onChange={(event) => setForm({ ...form, province: event.target.value })} />
+              <TextInput value={form.province} allowNumbers={false} onChange={(event) => setForm({ ...form, province: event.target.value })} />
             </Field>
             <div className="flex flex-wrap items-end gap-3">
               {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (

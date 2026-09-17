@@ -33,10 +33,33 @@ export function Field({ label, children }) {
   );
 }
 
-export function TextInput({ className, ...props }) {
+export function TextInput({ className, allowNumbers = true, numericOnly = false, onChange, ...props }) {
+  function handleChange(event) {
+    const rawValue = event.target.value ?? '';
+    let nextValue = rawValue;
+
+    if (numericOnly) {
+      nextValue = rawValue.replace(/\D/g, '');
+    } else if (!allowNumbers) {
+      nextValue = rawValue.replace(/\d/g, '');
+    }
+
+    if (nextValue !== rawValue && typeof onChange === 'function') {
+      event.target.value = nextValue;
+      onChange(event);
+      return;
+    }
+
+    if (typeof onChange === 'function') {
+      onChange(event);
+    }
+  }
+
   return (
     <input
       {...props}
+      onChange={handleChange}
+      inputMode={numericOnly ? 'numeric' : props.inputMode}
       className={cn(
         'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100',
         className,

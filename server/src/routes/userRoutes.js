@@ -7,9 +7,11 @@ import { audit } from '../services/auditService.js';
 
 const router = Router();
 
+const sanitizedName = z.string().trim().min(2).refine((value) => !/\d/.test(value), { message: 'Name must not contain numbers.' });
+
 const userSchema = z.object({
   health_center_id: z.coerce.number().int().positive().optional().nullable(),
-  name: z.string().min(2),
+  name: sanitizedName,
   email: z.string().email(),
   password: z.string().min(8).optional(),
   role: z.enum(['super_admin', 'barangay_staff', 'city_staff']),

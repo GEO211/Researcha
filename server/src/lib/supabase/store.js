@@ -386,6 +386,54 @@ export async function getPatient(id) {
   return attachPatientCenter(await getRowById(TABLES.patients, id));
 }
 
+function normalizeText(value) {
+  return String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function normalizePhone(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+
+  if (digits.startsWith('63')) return digits;
+  if (digits.startsWith('0')) return `63${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith('9')) return `63${digits}`;
+  return digits;
+}
+
+export async function findExistingPatient(candidate = {}) {
+  const firstName = normalizeText(candidate.first_name);
+  const lastName = normalizeText(candidate.last_name);
+  const birthDate = String(candidate.birth_date || '').slice(0, 10);
+  const contact = normalizePhone(candidate.contact_number);
+  const address = normalizeText(candidate.address);
+  const city = normalizeText(candidate.city);
+
+  if (!firstName || !lastName || !birthDate) {
+    return null;
+  }
+
+  const sql = `
+    SELECT *
+    FROM ${TABLES.patients}
+    WHERE LOWER(TRIM(first_name)) = LOWER(TRIM($1))
+      AND LOWER(TRIM(last_name)) = LOWER(TRIM($2))
+      AND birth_date = $3
+      AND (
+        ($4 <> '' AND regexp_replace(COALESCE(contact_number, ''), '[^0-9]', '', 'g') = $4)
+        OR (
+          LOWER(TRIM(COALESCE(address, ''))) = LOWER(TRIM($5))
+          AND LOWER(TRIM(COALESCE(city, ''))) = LOWER(TRIM($6))
+        )
+      )
+    LIMIT 1
+  `;
+
+  const existing = await selectOne(sql, [firstName, lastName, birthDate, contact, address, city]);
+  if (!existing) return null;
+
+  return attachPatientCenter(existing);
+}
+
 export async function createPatient(data) {
   const ts = nowIso();
   const created = await insertRow(TABLES.patients, { ...data, created_at: ts, updated_at: ts });

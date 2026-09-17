@@ -19,6 +19,50 @@ function resolveApiBase() {
 }
 
 const API_BASE = resolveApiBase();
+const OFFLINE_QUEUE_KEY = 'carelink.offline-queue';
+
+function isOnline() {
+  return typeof navigator !== 'undefined' ? navigator.onLine : true;
+}
+
+function getOfflineQueue() {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOfflineQueue(queue) {
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+}
+
+async function flushOfflineQueue() {
+  if (!isOnline()) return;
+
+  const queue = getOfflineQueue();
+  if (!queue.length) return;
+
+  const remaining = [];
+
+  for (const item of queue) {
+    try {
+      await fetch(`${API_BASE}${item.path}`, {
+        method: item.method || 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(item.token ? { Authorization: `Bearer ${item.token}` } : {}),
+        },
+        body: item.body ? JSON.stringify(item.body) : undefined,
+      });
+    } catch {
+      remaining.push(item);
+    }
+  }
+
+  saveOfflineQueue(remaining);
+}
 
 export function getStoredSession() {
   const raw = localStorage.getItem('carelink.session');
@@ -35,6 +79,24 @@ export function clearSession() {
 
 export async function api(path, options = {}) {
   const session = getStoredSession();
+  const method = (options.method || 'GET').toUpperCase();
+  const isMutation = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
+
+  if (!isOnline() && isMutation) {
+    const queue = getOfflineQueue();
+    const entry = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      path,
+      method,
+      token: session?.token || null,
+      body: options.body ? JSON.parse(options.body) : null,
+      created_at: new Date().toISOString(),
+    };
+    queue.push(entry);
+    saveOfflineQueue(queue);
+    return { offline: true, queued: true, message: 'Offline mode: your update was saved locally and will sync automatically when the connection is restored.' };
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -63,7 +125,17 @@ export async function api(path, options = {}) {
     throw error;
   }
 
+  if (isMutation) {
+    flushOfflineQueue();
+  }
+
   return data;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    flushOfflineQueue();
+  });
 }
 
 export async function downloadCsv(path) {
