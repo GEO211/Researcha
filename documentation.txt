@@ -1,0 +1,492 @@
+CARELINK SYSTEM GUIDE
+====================
+
+This document explains how the CareLink system works and how to use it as a user. It is written so a panelist, evaluator, or stakeholder can understand the full flow of the platform quickly.
+
+
+1. WHAT CARELINK IS
+-------------------
+
+CareLink is a smart health referral and queue management system designed for barangay health centers, city health offices, and administrators.
+
+It helps:
+- register patients
+- create and review medical referrals
+- prioritize urgent cases
+- track queue status in real time
+- notify patients through SMS and email
+- generate reports and analytics
+- monitor patient status using public tracking links
+
+The platform is built for local health operations, especially in referral-based patient care.
+
+
+2. MAIN USERS / ROLES
+---------------------
+
+The system is role-based. Different user types can access different features.
+
+A. Barangay Staff
+- Registers patients
+- Submits referral requests
+- Reviews and manages local records
+- Can access patient and referral modules
+
+B. City Staff / Review Staff
+- Reviews incoming referrals from barangay centers
+- Manages queue prioritization
+- Sees analytics and reports
+- Can approve, complete, or mark referrals as missed/rejected
+
+C. Super Admin
+- Full system access
+- Manages users and settings
+- Oversees audit logs, SMS/email activity
+- Configures health centers and system rules
+
+D. Public / Patient
+- Uses tracking link to check referral progress
+- Does not need staff login
+- Can view queue and tracking status
+
+
+2.1 PURPOSE OF RBAC (ROLE-BASED ACCESS CONTROL)
+--------------------------------------------------
+
+RBAC is used to control what each user can do in the system based on their assigned role.
+
+The purpose of RBAC is to:
+- protect sensitive health and referral information
+- avoid unauthorized access to data and operations
+- segment responsibilities between barangay staff, city staff, and administrators
+- keep patient data secure and compliant with operational privacy expectations
+- reduce mistakes by limiting functions to the appropriate role
+
+In simple terms, RBAC ensures that a user can only access the modules and actions required for their responsibilities.
+
+Example:
+- Barangay staff can register patients and create referrals.
+- City staff can review and process queue actions.
+- Super Admin can manage the entire system.
+- Public users can only view tracking information, not internal records.
+
+
+2.2 DETAILED ROLE ACCESS
+------------------------
+
+A. ADMIN ACCESS (Super Admin)
+- Full access to all system modules and pages.
+- Can view Dashboard, Patients, Referrals, Queue, Analytics, Tracking, Evaluation, Profile, and Admin.
+- Can manage system users and assign roles.
+- Can configure system settings and health center data.
+- Can access audit logs, SMS logs, email logs, and activity history.
+- Can monitor all referrals, queue entries, and patient data across the system.
+- Can change system-level rules and permissions when necessary.
+
+This role is responsible for overall system governance and security.
+
+B. CITY STAFF ACCESS
+- Can review and oversee referrals submitted by barangay units.
+- Can access queue and operational monitoring screens.
+- Can view analytics and performance reports.
+- Can approve, update, complete, or reassign referral status when needed.
+- Can mark referrals as missed, rejected, expired, or invalid queue entries.
+- Can manage active queue operations and prioritize urgent cases.
+- Cannot modify system settings or full user administration.
+
+This role focuses on referral processing and service delivery.
+
+C. BARANGAY STAFF ACCESS
+- Can register patient records into the system.
+- Can create and submit referral requests.
+- Can manage patient and referral information related to their assigned health center.
+- Can track local records and referral progress for their patients.
+- Can view patient details and referral records needed for barangay operations.
+- Cannot access full admin controls or system-wide configuration tools.
+
+This role focuses on front-line patient intake and referral submission.
+
+D. PUBLIC / PATIENT ACCESS
+- Can access only public tracking features.
+- Can check referral status by entering a tracking code or using a provided tracking link.
+- Can view queue status or patient progress information related to their referral.
+- Cannot access internal staff dashboards, patient database, admin screens, or system settings.
+
+This is the public-facing part of the system for transparency and patient communication.
+
+
+2.3 RBAC ACCESS SUMMARY
+------------------------
+
+| Role | Main Access | Restricted Access |
+|------|-------------|------------------|
+| Barangay Staff | Patients, Referrals, local records | Full admin controls, system-wide analytics and settings |
+| City Staff | Queue, monitoring, analytics, referral review | User management and system settings |
+| Super Admin | Full system, users, settings, logs, audits | None |
+| Public / Patient | Tracking link and status lookup | Internal records, staff dashboards, admin features |
+
+This access model keeps the system organized, secure, and easier to manage.
+
+
+3. DEFAULT LOGIN ACCOUNTS
+-------------------------
+
+After setup, the default accounts are:
+
+Super Admin
+- Email: admin@carelink.local
+- Password: password123
+
+Barangay Staff
+- Email: barangay@carelink.local
+- Password: password123
+
+City Staff
+- Email: city@carelink.local
+- Password: password123
+
+These are seed accounts used for testing and demonstration.
+
+
+4. OVERVIEW OF THE SYSTEM INTERFACE
+-----------------------------------
+
+After logging in, the system shows a sidebar with major modules:
+
+- Dashboard
+- Patients
+- Referrals
+- Queue
+- Analytics
+- Tracking
+- Evaluation
+- Profile
+- Admin
+
+The exact tabs shown depend on the user's role.
+
+
+5. DASHBOARD
+-------------
+
+The Dashboard is the home screen for management and monitoring.
+
+It presents:
+- overall referral summary
+- queue counts
+- patient numbers
+- referral status overview
+- performance indicators
+- AI or analytics summaries
+
+This is where users get a quick picture of current operations.
+
+
+6. PATIENT REGISTRATION MODULE
+------------------------------
+
+This module is used to add patient information into the system.
+
+What the staff enters may include:
+- first name, middle name, last name
+- birth date
+- sex
+- contact number and email
+- address and barangay details
+- medical classifications
+- emergency contact information
+- medical notes
+
+Important points:
+- The system validates required information.
+- Barangay staff are typically assigned to the health center they belong to.
+- The patient record is linked to the correct health center and local barangay.
+
+This creates a patient profile that can later be selected when submitting a referral.
+
+
+7. REFERRAL MODULE
+------------------
+
+The Referrals tab is the heart of the system.
+
+How it works:
+1. The user selects an existing patient.
+2. A referral record is created for a medical or follow-up case.
+3. The system records the reason for referral, urgency, and severity.
+4. It determines the receiving health center and priority level.
+5. The referral is saved and queued for processing.
+
+Referral fields may include:
+- patient ID
+- reason for referral
+- referral type
+- clinical urgency
+- severity level
+- receiving health center
+- status
+- priority classification
+
+The system distinguishes between:
+- Submitted
+- Under review
+- Queued
+- Completed
+- Missed
+- Rejected
+- Expired
+- Archived
+
+The referral status helps identify whether the case is still pending, active, or closed.
+
+
+8. REFERRAL PRIORITY AND URGENCY
+--------------------------------
+
+The platform uses different levels of urgency and filtering.
+
+Urgency examples:
+- Routine
+- Urgent
+- Emergency
+
+Priority examples:
+- Priority 1 Emergency
+- Priority 2 Vulnerable
+- Priority 3 Standard
+
+This allows the system to decide which patients should be served first based on medical need and vulnerability.
+
+
+9. QUEUE MANAGEMENT MODULE
+---------------------------
+
+The Queue page is where real-time processing happens.
+
+It shows all active or filtered referrals in line for service.
+
+Features include:
+- active queue view
+- range filters (active, today, custom dates, etc.)
+- status filters (waiting, called, served, missed, cancelled, expired)
+- referral status filters
+- search by patient name or code
+- priority sorting
+
+Staff can:
+- review the queue
+- call a patient
+- send SMS/email notification to the patient
+- mark queue entries as served, missed, or invalid
+- update referral outcomes
+
+Queue management is designed to ensure that the most urgent or vulnerable patient is served first.
+
+When a patient is called, the system may send a notification message to the patient to inform them that their appointment or consultation is ready.
+
+
+10. HOW THE SYSTEM DECIDES WHO IS CALLED FIRST
+-----------------------------------------------
+
+The queue is not random. It is organized using patient priority and referral status.
+
+The system considers:
+- clinical urgency
+- severity level
+- vulnerability classification
+- referral queue status
+- date/time range
+- whether the patient is still active in queue
+
+This helps city staff focus on the right patients at the right time and reduces delays in referral care.
+
+
+11. SMS AND EMAIL NOTIFICATIONS
+--------------------------------
+
+The system sends automated messages for important updates.
+
+Examples:
+- referral submitted or approved
+- patient called for consultation
+- appointment reminder sent
+- missed referral alert
+- status update for tracking
+
+The system uses SMS and email to notify both staff and patients. This reduces communication delays and improves patient follow-up.
+
+
+12. PUBLIC TRACKING AND PATIENT STATUS CHECK
+---------------------------------------------
+
+One of the most important parts of the system is public tracking.
+
+Each referral generates a tracking code, and a patient can use a tracking link to check progress.
+
+Example:
+https://carelink-bay.vercel.app/track/CL-YYYYMMDD-ABC123
+
+The patient can enter the code or click the link in the SMS to see:
+- referral status
+- queue progress
+- appointment information
+- whether the patient is waiting, called, served, or expired
+
+This feature allows patients and family members to know where the referral stands without needing staff access.
+
+
+13. ANALYTICS MODULE
+--------------------
+
+The Analytics page provides reports and summaries for managers and decision-makers.
+
+It may include:
+- referral counts
+- queue trends
+- patient classifications
+- health center output
+- performance summaries
+- downloadable CSV reports
+
+This is useful for:
+- monitoring workload
+- identifying trend patterns
+- evaluating referral operations
+- preparing reports for health office administrators
+
+
+14. EVALUATION MODULE
+---------------------
+
+The Evaluation module is used to gather user feedback about the system.
+
+It allows users to:
+- rate the system or service
+- answer evaluation questions
+- provide comments
+- submit feedback about the referral experience
+
+This can be used for research, system improvement, or quality assessment.
+
+
+15. PROFILE MODULE
+------------------
+
+The Profile section contains user information and account details.
+
+It may show:
+- name
+- email
+- role
+- assigned health center
+- account settings
+
+Users can update their profile information when needed.
+
+
+16. ADMIN MODULE
+----------------
+
+The Admin page is intended for super administrators.
+
+This module may include:
+- user management
+- health center configuration
+- system settings
+- SMS logs
+- email logs
+- audit trail
+- activity history
+
+This is where system-wide controls and records are managed.
+
+
+17. FULL USAGE FLOW (EXAMPLE)
+-----------------------------
+
+Here is a typical real-world workflow:
+
+Step 1: Staff logs in
+- Barangay staff signs in using their account.
+
+Step 2: Patient registration
+- Staff registers a patient with complete profile details.
+
+Step 3: New referral creation
+- The patient is selected and a referral request is created.
+
+Step 4: Referral review
+- City staff reviews the referral and checks urgency, severity, and reason.
+
+Step 5: Queue assignment
+- The referral is queued based on medical priority and vulnerability.
+
+Step 6: Patient notification
+- The patient receives SMS/email notification and a tracking code.
+
+Step 7: Queue operational use
+- The queue screen shows patient position and status.
+
+Step 8: Call and service
+- Staff call the patient when they are next in line.
+
+Step 9: Completion or update
+- The referral is marked completed, missed, rejected, or archived.
+
+Step 10: Tracking and reporting
+- The patient sees the status via tracking link.
+- Admins view analytics and download reports.
+
+
+18. BEST PRACTICES FOR USERS
+---------------------------
+
+- Always register the patient completely before creating a referral.
+- Review the referral reason and severity carefully.
+- Check queue priority before calling patients.
+- Use public tracking links to answer patient inquiries.
+- Make sure notifications are sent when queue status changes.
+- Use analytics to monitor performance and identify delays.
+
+
+19. COMMON TERMS IN THE SYSTEM
+-----------------------------
+
+Patient Record
+- A record containing patient identification and profile information.
+
+Referral
+- A request to send a patient to another health facility or service.
+
+Queue
+- The list of active referrals waiting for service.
+
+Tracking Code
+- A unique code used to check referral status.
+
+Priority Level
+- The urgency or vulnerability category used to decide who gets served first.
+
+Status
+- Current condition of the referral or queue entry.
+
+
+20. SUMMARY
+-----------
+
+CareLink is a full digital health referral and queue management platform that connects patient registration, referral processing, queue handling, tracking, notifications, analytics, and admin control in one system.
+
+The core idea is simple:
+- register the patient
+- submit a referral
+- prioritize the case
+- notify the patient
+- track progress
+- manage outcomes
+- review data and reports
+
+This workflow allows health services to respond faster, organize better, and provide a more transparent referral experience for both staff and patients.
+
+
+END OF DOCUMENT
+---------------
