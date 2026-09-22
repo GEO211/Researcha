@@ -1,6 +1,7 @@
 import { createSmsLog, getPatient, getSystemSetting, hasSentSms } from '../lib/supabase/store.js';
 
 const UNISMS_URL = 'https://unismsapi.com/api/sms';
+const UNISMS_SENDER_ID_FALLBACKS = ['UniSMS', 'Unisoft', 'CareLink'];
 const SMS_MAX_LENGTH = 160;
 const HEALTH_CENTER_NAME = 'Koronadal City Health Center';
 const SMS_BRAND_NAME = process.env.SMS_BRAND_NAME || 'CareLink';
@@ -240,33 +241,54 @@ export async function logSms({ patientId, referralId, queueEntryId, recipientNum
 }
 
 async function deliverUniSms({ secretKey, senderId, recipient, content, metadata }) {
-  const auth = Buffer.from(`${secretKey}:`).toString('base64');
-  const response = await fetch(UNISMS_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      recipient,
-      content,
-      sender_id: senderId,
-      metadata,
-    }),
-  });
+  const candidates = Array.from(new Set([senderId, ...UNISMS_SENDER_ID_FALLBACKS].filter(Boolean)));
 
-  const payload = await response.json().catch(() => ({}));
+  let lastError = null;
 
-  if (!response.ok) {
-    throw new Error(extractUniSmsError(payload, response.status));
+  for (const candidate of candidates) {
+    try {
+      const auth = Buffer.from(`${secretKey}:`).toString('base64');
+      const response = await fetch(UNISMS_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipient,
+          content,
+          sender_id: candidate,
+          ...(metadata && Object.keys(metadata).length ? { metadata } : {}),
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const message = extractUniSmsError(payload, response.status);
+        const senderReject = /sender id|sender_id|sender/i.test(message);
+        lastError = new Error(message);
+        if (!senderReject) throw lastError;
+        continue;
+      }
+
+      const deliveryStatus = payload?.message?.status;
+      if (deliveryStatus && !['sent', 'queued', 'pending', 'retrying'].includes(deliveryStatus)) {
+        const message = payload?.message?.fail_reason || `UniSMS status: ${deliveryStatus}`;
+        lastError = new Error(message);
+        const senderReject = /sender id|sender_id|sender/i.test(message);
+        if (!senderReject) throw lastError;
+        continue;
+      }
+
+      return { referenceId: payload?.message?.reference_id || payload?.reference_id || null };
+    } catch (error) {
+      lastError = error;
+      if (!error?.message || !/sender id|sender_id|sender/i.test(error.message)) break;
+    }
   }
 
-  const deliveryStatus = payload?.message?.status;
-  if (deliveryStatus && !['sent', 'queued', 'pending', 'retrying'].includes(deliveryStatus)) {
-    throw new Error(payload?.message?.fail_reason || `UniSMS status: ${deliveryStatus}`);
-  }
-
-  return { referenceId: payload?.message?.reference_id || null };
+  throw lastError || new Error('UniSMS request failed.');
 }
 
 function buildLinkFallbackContent(content) {
@@ -304,7 +326,7 @@ export async function sendSms({ patientId, referralId, queueEntryId = null, reci
   }
 
   const secretKey = process.env.UNISMS_SECRET_KEY;
-  const senderId = process.env.UNISMS_SENDER_ID || 'Unisoft';
+  const senderId = (process.env.UNISMS_SENDER_ID || 'UniSMS').trim();
   const recipient = formatPhilippineNumber(patientPhone);
   const content = normalizeSmsContent(injectPatientName(message, displayName));
   const resolvedFallback = fallbackMessage
