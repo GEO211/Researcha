@@ -12,10 +12,11 @@ import { queueCallCooldownSeconds } from '../lib/supabase/helpers.js';
 import { audit } from '../services/auditService.js';
 import { callEmailMessage, callEmailSubject, sendEmail } from '../services/emailService.js';
 import { callMessage, resolvePatientDisplayName, sendSms } from '../services/smsService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
-router.get('/', authenticate, authorize('super_admin', 'city_staff', 'barangay_staff'), async (req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.QUEUE_VIEW, PERMISSIONS.TRACKING_OWN), async (req, res, next) => {
   try {
     const receivingHealthCenterId = req.user.role === 'barangay_staff'
       ? req.user.health_center_id
@@ -31,11 +32,14 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff', 'barangay_s
 
     if (!hasFilters) {
       const queue = await listTodayQueue({ receivingHealthCenterId });
+      const scoped = req.user.role === 'patient'
+        ? queue.filter((entry) => Number(entry.patient_id) === Number(req.user.patient_id))
+        : queue;
       return res.json({
-        queue,
+        queue: scoped,
         meta: {
           range: 'today',
-          total: queue.length,
+          total: scoped.length,
           data_source: 'supabase',
           synced_with: 'referrals',
         },
@@ -51,13 +55,16 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff', 'barangay_s
       q: req.query.q,
       receivingHealthCenterId,
     });
+    if (req.user.role === 'patient') {
+      result.queue = (result.queue || []).filter((entry) => Number(entry.patient_id) === Number(req.user.patient_id));
+    }
     return res.json(result);
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/:id/call', authenticate, authorize('city_staff', 'super_admin', 'barangay_staff'), async (req, res, next) => {
+router.post('/:id/call', authenticate, authorize(PERMISSIONS.QUEUE_CALL), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const entry = await getQueueEntry(id);

@@ -41,6 +41,7 @@ function UserManagement({ users, healthCenters, onRefresh }) {
   const confirm = useConfirm();
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'barangay_staff', health_center_id: '', status: 'active' });
   const [editing, setEditing] = useState(null);
+  const [formError, setFormError] = useState('');
   const barangayCenters = healthCenters.filter((center) => center.type === 'barangay' && center.status === 'active');
   const cityCenters = healthCenters.filter((center) => center.type === 'city' && center.status === 'active');
 
@@ -52,6 +53,24 @@ function UserManagement({ users, healthCenters, onRefresh }) {
 
   async function submit(event) {
     event.preventDefault();
+    setFormError('');
+    if (!form.name.trim()) {
+      setFormError('Name is required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setFormError('Enter a valid email address.');
+      return;
+    }
+    if (!form.password || form.password.length < 8) {
+      setFormError('Password must be at least 8 characters.');
+      return;
+    }
+    if (form.role === 'barangay_staff' && !form.health_center_id) {
+      setFormError('Assign barangay staff to a barangay health center.');
+      return;
+    }
+
     const confirmed = await confirm({
       title: 'Create user?',
       message: `Create account for ${form.email || 'this user'}?`,
@@ -59,15 +78,21 @@ function UserManagement({ users, healthCenters, onRefresh }) {
     });
     if (!confirmed) return;
 
-    await api('/users', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...form,
-        health_center_id: form.health_center_id ? Number(form.health_center_id) : null,
-      }),
-    });
-    setForm({ name: '', email: '', password: '', role: 'barangay_staff', health_center_id: '', status: 'active' });
-    await onRefresh();
+    try {
+      await api('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          name: form.name.trim(),
+          email: form.email.trim(),
+          health_center_id: form.health_center_id ? Number(form.health_center_id) : null,
+        }),
+      });
+      setForm({ name: '', email: '', password: '', role: 'barangay_staff', health_center_id: '', status: 'active' });
+      await onRefresh();
+    } catch (err) {
+      setFormError(err.message);
+    }
   }
 
   async function saveEdit(event) {
@@ -121,7 +146,7 @@ function UserManagement({ users, healthCenters, onRefresh }) {
           <Field label="Role">
             <SelectInput value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
               <option value="barangay_staff">Barangay Staff</option>
-              <option value="city_staff">City Staff</option>
+              <option value="city_staff">City Health Personnel</option>
               <option value="super_admin">Super Admin</option>
             </SelectInput>
           </Field>
@@ -142,14 +167,14 @@ function UserManagement({ users, healthCenters, onRefresh }) {
         </form>
       ) : null}
 
-      <form onSubmit={submit} className="mb-5 grid gap-3 md:grid-cols-3">
+      <form onSubmit={submit} className="mb-5 grid gap-3 md:grid-cols-3" noValidate>
         <Field label="Name"><TextInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
         <Field label="Email"><TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></Field>
         <Field label="Password"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></Field>
         <Field label="Role">
           <SelectInput value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, health_center_id: '' })}>
             <option value="barangay_staff">Barangay Staff</option>
-            <option value="city_staff">City Staff</option>
+            <option value="city_staff">City Health Personnel</option>
             <option value="super_admin">Super Admin</option>
           </SelectInput>
         </Field>
@@ -168,6 +193,7 @@ function UserManagement({ users, healthCenters, onRefresh }) {
           </SelectInput>
         </Field>
         <div className="flex items-end"><PrimaryButton>Create user</PrimaryButton></div>
+        {formError ? <p className="text-sm font-medium text-red-600 md:col-span-3">{formError}</p> : null}
       </form>
       <SimpleTable
         rows={users.map((user) => ({ ...user, role: roleLabel(user.role) }))}

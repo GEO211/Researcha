@@ -45,7 +45,7 @@ const categories = [
   },
 ];
 
-export default function Dashboard({ summary }) {
+export default function Dashboard({ summary, canUseAi = true }) {
   const [activeCategory, setActiveCategory] = useState('overview');
 
   return (
@@ -56,8 +56,8 @@ export default function Dashboard({ summary }) {
             <h2 className="text-lg font-semibold tracking-tight text-slate-950">Dashboard</h2>
             <p className="text-sm text-slate-500">Choose an operations category.</p>
           </div>
-          <AnimatedGrid className="grid gap-3 sm:grid-cols-2">
-            {categories.map((category) => {
+          <AnimatedGrid className={classNames('grid gap-3', canUseAi ? 'sm:grid-cols-2' : 'sm:grid-cols-1')}>
+            {categories.filter((category) => category.id !== 'ai' || canUseAi).map((category) => {
               const Icon = category.icon;
               const isActive = activeCategory === category.id;
 
@@ -101,8 +101,8 @@ export default function Dashboard({ summary }) {
       </PageBlock>
 
       <PageBlock>
-        <TabPanel panelKey={activeCategory}>
-          {activeCategory === 'overview' ? (
+        <TabPanel panelKey={canUseAi ? activeCategory : 'overview'}>
+          {!canUseAi || activeCategory === 'overview' ? (
             <OverviewPanel summary={summary} />
           ) : (
             <AiAnalyticsPanel />

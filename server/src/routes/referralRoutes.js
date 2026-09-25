@@ -24,16 +24,17 @@ import { createQueueNumber, createReferralCode } from '../services/codeService.j
 import { calculatePriority } from '../services/priorityService.js';
 import { approvalMessage, cancellationMessage, completionThankYouMessage, confirmationMessagePair, missedMessage, rejectionMessage, rescheduleMessage, resolvePatientDisplayName, sendSms } from '../services/smsService.js';
 import { recordMetric, startTimer } from '../services/performanceService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
 const referralSchema = z.object({
-  patient_id: z.coerce.number().int().positive(),
-  receiving_health_center_id: z.coerce.number().int().positive().optional(),
-  referral_reason: z.string().min(5),
-  clinical_urgency: z.enum(['emergency', 'urgent', 'routine']),
-  referral_type: z.enum(['emergency', 'specialist_consultation', 'follow_up', 'routine']),
-  severity_level: z.enum(['low', 'moderate', 'high', 'critical']).default('moderate'),
+  patient_id: z.coerce.number().int().positive({ message: 'Select a patient.' }),
+  receiving_health_center_id: z.coerce.number().int().positive({ message: 'Select a checkup location.' }).optional(),
+  referral_reason: z.string().trim().min(5, 'Referral reason must be at least 5 characters.'),
+  clinical_urgency: z.enum(['emergency', 'urgent', 'routine'], { message: 'Select a clinical urgency.' }),
+  referral_type: z.enum(['emergency', 'specialist_consultation', 'follow_up', 'routine'], { message: 'Select a referral type.' }),
+  severity_level: z.enum(['low', 'moderate', 'high', 'critical'], { message: 'Select a severity level.' }).default('moderate'),
 });
 
 const reviewSchema = z.object({
@@ -70,16 +71,19 @@ function referralActionError(res, referral, action) {
   return null;
 }
 
-router.get('/', authenticate, authorize('super_admin', 'barangay_staff', 'city_staff'), async (req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.REFERRALS_VIEW, PERMISSIONS.TRACKING_OWN), async (req, res, next) => {
   try {
-    const referrals = await listReferrals(buildFilters(req));
+    let referrals = await listReferrals(buildFilters(req));
+    if (req.user.role === 'patient') {
+      referrals = referrals.filter((row) => Number(row.patient_id) === Number(req.user.patient_id));
+    }
     res.json({ referrals });
   } catch (error) {
     next(error);
   }
 });
 
-router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async (req, res, next) => {
+router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (req, res, next) => {
   const startedAt = startTimer();
 
   try {
@@ -178,7 +182,7 @@ const transferSchema = z.object({
   receiving_health_center_id: z.coerce.number().int().positive(),
 });
 
-router.post('/:id/transfer', authenticate, authorize('barangay_staff', 'city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/transfer', authenticate, authorize(PERMISSIONS.REFERRALS_TRANSFER), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = transferSchema.parse(req.body);
@@ -220,7 +224,7 @@ router.post('/:id/transfer', authenticate, authorize('barangay_staff', 'city_sta
   }
 });
 
-router.post('/:id/review', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/review', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);
@@ -241,7 +245,7 @@ router.post('/:id/review', authenticate, authorize('city_staff', 'super_admin'),
   }
 });
 
-router.post('/:id/approve', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/approve', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   const startedAt = startTimer();
 
   try {
@@ -308,7 +312,7 @@ router.post('/:id/approve', authenticate, authorize('city_staff', 'super_admin')
   }
 });
 
-router.post('/:id/reject', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/reject', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = rejectSchema.parse(req.body);
@@ -344,7 +348,7 @@ router.post('/:id/reject', authenticate, authorize('city_staff', 'super_admin'),
   }
 });
 
-router.post('/:id/complete', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/complete', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);
@@ -383,7 +387,7 @@ router.post('/:id/complete', authenticate, authorize('city_staff', 'super_admin'
   }
 });
 
-router.post('/:id/miss', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/miss', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await missReferral(id);
@@ -412,7 +416,7 @@ router.post('/:id/miss', authenticate, authorize('city_staff', 'super_admin'), a
   }
 });
 
-router.post('/:id/cancel', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/cancel', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);
@@ -452,7 +456,7 @@ router.post('/:id/cancel', authenticate, authorize('city_staff', 'super_admin'),
   }
 });
 
-router.post('/:id/appointment', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/appointment', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = appointmentSchema.parse(req.body);
@@ -494,7 +498,7 @@ router.post('/:id/appointment', authenticate, authorize('city_staff', 'super_adm
   }
 });
 
-router.post('/:id/invalid-queue', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/invalid-queue', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);
@@ -521,7 +525,7 @@ router.post('/:id/invalid-queue', authenticate, authorize('city_staff', 'super_a
   }
 });
 
-router.post('/:id/archive', authenticate, authorize('city_staff', 'super_admin'), async (req, res, next) => {
+router.post('/:id/archive', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);

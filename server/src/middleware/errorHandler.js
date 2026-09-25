@@ -25,7 +25,14 @@ export function errorHandler(error, req, res, _next) {
     });
   }
 
-  if (error.code === 'already-exists' || error.code === 6) {
+  if (error.code === 'already-exists' || error.code === 6 || error.code === '23505') {
+    const detail = String(error.detail || error.message || '');
+    if (/patients/i.test(detail) || /uq_patients_/i.test(String(error.constraint || ''))) {
+      return res.status(409).json({
+        message: 'This patient is already registered. A matching record was found, so a new entry was not created.',
+        code: 'patient_exists',
+      });
+    }
     return res.status(409).json({ message: 'A record with the same unique value already exists.' });
   }
 

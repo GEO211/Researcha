@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS patients (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_patients_health_center FOREIGN KEY (health_center_id) REFERENCES health_centers(id),
   INDEX idx_patients_name (last_name, first_name),
-  INDEX idx_patients_contact (contact_number)
+  INDEX idx_patients_contact (contact_number),
+  UNIQUE KEY uq_patients_identity (last_name, first_name, birth_date)
 );
 
 CREATE TABLE IF NOT EXISTS referrals (

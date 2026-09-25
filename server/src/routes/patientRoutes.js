@@ -1,55 +1,19 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { authenticate, authorize, preventProfessionalSelfAccess } from '../middleware/auth.js';
-import { createPatient, findExistingPatient, getPatient, listHealthCenters, listPatients, updatePatient } from '../lib/supabase/store.js';
+import {
+  createPatient,
+  findDuplicatePatient,
+  getPatient,
+  listHealthCenters,
+  listPatients,
+  updatePatient,
+} from '../lib/supabase/store.js';
+import { duplicatePatientMessage, normalizePatientRecord, patientSchema } from '../lib/patientRules.js';
 import { findHealthCenterForBarangay } from '../data/koronadalBarangays.js';
 import { audit } from '../services/auditService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
-
-const personNameSchema = (label = 'Name') => z.string().trim().min(1).refine((value) => !/\d/.test(value), {
-  message: `${label} must not contain numbers.`,
-});
-
-const phoneSchema = z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || /^\+?[0-9\s-]+$/.test(value), {
-  message: 'Phone number can only contain digits, spaces, +, and -.',
-});
-
-const patientSchema = z.object({
-  health_center_id: z.coerce.number().int().positive().optional(),
-  first_name: personNameSchema('First name').min(1),
-  middle_name: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
-    message: 'Middle name must not contain numbers.',
-  }),
-  last_name: personNameSchema('Last name').min(1),
-  birth_date: z.string().min(10),
-  sex: z.enum(['female', 'male', 'other']),
-  contact_number: phoneSchema,
-  email: z.string().email().optional().nullable().or(z.literal('')),
-  address: z.string().min(2),
-  address2: z.string().optional().nullable(),
-  city: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
-    message: 'City must not contain numbers.',
-  }),
-  postal_code: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || /^\d+$/.test(value), {
-    message: 'Postal code must contain only numbers.',
-  }),
-  province: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
-    message: 'Province must not contain numbers.',
-  }),
-  is_senior: z.boolean().default(false),
-  is_pregnant: z.boolean().default(false),
-  is_pwd: z.boolean().default(false),
-  is_child: z.boolean().default(false),
-  is_infant: z.boolean().default(false),
-  is_indigenous: z.boolean().default(false),
-  is_solo_parent: z.boolean().default(false),
-  medical_notes: z.string().optional().nullable(),
-  emergency_contact_name: z.string().trim().optional().nullable().transform((value) => (value === '' ? null : value)).refine((value) => !value || !/\d/.test(value), {
-    message: 'Emergency contact name must not contain numbers.',
-  }),
-  emergency_contact_number: phoneSchema,
-});
 
 function buildFilters(req) {
   const filters = {};
@@ -66,7 +30,22 @@ function buildFilters(req) {
   return filters;
 }
 
-router.get('/', authenticate, authorize('super_admin', 'barangay_staff', 'city_staff'), async (req, res, next) => {
+function duplicateResponse(res, existing) {
+  return res.status(409).json({
+    message: duplicatePatientMessage(existing, existing.match_reason),
+    code: 'patient_exists',
+    existing_patient: {
+      id: existing.id,
+      first_name: existing.first_name,
+      last_name: existing.last_name,
+      birth_date: existing.birth_date,
+      contact_number: existing.contact_number,
+      email: existing.email,
+    },
+  });
+}
+
+router.get('/', authenticate, authorize(PERMISSIONS.PATIENTS_VIEW), async (req, res, next) => {
   try {
     const patients = await listPatients(buildFilters(req));
     res.json({ patients });
@@ -75,9 +54,9 @@ router.get('/', authenticate, authorize('super_admin', 'barangay_staff', 'city_s
   }
 });
 
-router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async (req, res, next) => {
+router.post('/', authenticate, authorize(PERMISSIONS.PATIENTS_CREATE), async (req, res, next) => {
   try {
-    const parsed = patientSchema.parse(req.body);
+    const parsed = normalizePatientRecord(patientSchema.parse(req.body));
     const centers = await listHealthCenters();
     const matchedCenter = findHealthCenterForBarangay(parsed.address, centers);
     const data = {
@@ -85,28 +64,14 @@ router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async
       health_center_id: req.user.role === 'barangay_staff'
         ? req.user.health_center_id
         : (matchedCenter?.id || parsed.health_center_id),
-      middle_name: parsed.middle_name || null,
-      contact_number: parsed.contact_number || null,
-      email: parsed.email || null,
-      address2: parsed.address2 || null,
-      city: parsed.city || null,
-      postal_code: parsed.postal_code || null,
-      province: parsed.province || null,
-      medical_notes: parsed.medical_notes || null,
-      emergency_contact_name: parsed.emergency_contact_name || null,
-      emergency_contact_number: parsed.emergency_contact_number || null,
     };
 
     if (!data.health_center_id) {
-      return res.status(400).json({ message: 'health_center_id is required.' });
+      return res.status(400).json({ message: 'A barangay health center is required before saving this patient.' });
     }
 
-    const existing = await findExistingPatient(data);
-    if (existing) {
-      return res.status(409).json({
-        message: `Patient already registered: ${existing.first_name} ${existing.last_name} (${existing.birth_date}). Please use the existing record instead.`,
-      });
-    }
+    const duplicate = await findDuplicatePatient(data);
+    if (duplicate) return duplicateResponse(res, duplicate);
 
     const created = await createPatient(data);
     await audit(req, 'patient.created', 'patient', created.id, null, data);
@@ -116,7 +81,7 @@ router.post('/', authenticate, authorize('barangay_staff', 'super_admin'), async
   }
 });
 
-router.get('/:id', authenticate, authorize('super_admin', 'barangay_staff', 'city_staff'), async (req, res, next) => {
+router.get('/:id', authenticate, authorize(PERMISSIONS.PATIENTS_VIEW, PERMISSIONS.TRACKING_OWN), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const patient = await getPatient(id);
@@ -125,12 +90,18 @@ router.get('/:id', authenticate, authorize('super_admin', 'barangay_staff', 'cit
       return res.status(404).json({ message: 'Patient not found.' });
     }
 
+    if (req.user.role === 'patient' && Number(req.user.patient_id) !== id) {
+      return res.status(403).json({ message: 'You can only view your own patient record.' });
+    }
+
     if (req.user.role === 'barangay_staff' && patient.health_center_id !== req.user.health_center_id) {
       return res.status(403).json({ message: 'Patient belongs to another health center.' });
     }
 
     if (preventProfessionalSelfAccess(req, patient)) {
-      return res.status(403).json({ message: 'City health staff cannot access or modify personal medical records under professional credentials.' });
+      return res.status(403).json({
+        message: 'City health staff cannot access personal medical records under professional credentials.',
+      });
     }
 
     return res.json({ patient });
@@ -139,10 +110,9 @@ router.get('/:id', authenticate, authorize('super_admin', 'barangay_staff', 'cit
   }
 });
 
-router.patch('/:id', authenticate, authorize('super_admin', 'barangay_staff'), async (req, res, next) => {
+router.patch('/:id', authenticate, authorize(PERMISSIONS.PATIENTS_UPDATE), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const data = patientSchema.partial().parse(req.body);
     const existing = await getPatient(id);
 
     if (!existing) {
@@ -154,17 +124,30 @@ router.patch('/:id', authenticate, authorize('super_admin', 'barangay_staff'), a
     }
 
     if (preventProfessionalSelfAccess(req, existing)) {
-      return res.status(403).json({ message: 'City health staff cannot access or modify personal medical records under professional credentials.' });
+      return res.status(403).json({
+        message: 'City health staff cannot modify personal medical records under professional credentials.',
+      });
     }
+
+    const parsed = normalizePatientRecord(patientSchema.parse({
+      ...existing,
+      ...req.body,
+      birth_date: String(req.body.birth_date || existing.birth_date || '').slice(0, 10),
+    }));
 
     const nextPatient = {
       ...existing,
-      ...data,
-      health_center_id: req.user.role === 'barangay_staff' ? existing.health_center_id : data.health_center_id || existing.health_center_id,
+      ...parsed,
+      health_center_id: req.user.role === 'barangay_staff'
+        ? existing.health_center_id
+        : (parsed.health_center_id || existing.health_center_id),
     };
 
+    const duplicate = await findDuplicatePatient({ ...nextPatient, excludeId: id });
+    if (duplicate) return duplicateResponse(res, duplicate);
+
     const updated = await updatePatient(id, nextPatient);
-    await audit(req, 'patient.updated', 'patient', id, existing, data);
+    await audit(req, 'patient.updated', 'patient', id, existing, parsed);
     return res.json({ patient: updated });
   } catch (error) {
     return next(error);

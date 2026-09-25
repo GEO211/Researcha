@@ -29,6 +29,7 @@ import {
 } from '../components/ui';
 import { classNames, formatDateTime } from '../components/helpers';
 import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
+import { applyServerIssues, validatePatientForm } from '../lib/patientValidation';
 import {
   PATIENT_CLASSIFICATION_FIELDS,
   classificationTones,
@@ -179,6 +180,7 @@ function PatientForm({ onCreated, healthCenters, user }) {
   const [form, setForm] = useState(initialPatient);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
   const staffCenter = healthCenters.find((center) => Number(center.id) === Number(user?.health_center_id));
   const lockedAddress = isBarangayStaff(user) ? homeBarangayLabelForCenter(staffCenter) : '';
@@ -193,12 +195,25 @@ function PatientForm({ onCreated, healthCenters, user }) {
 
   function update(key, value) {
     setForm((current) => ({ ...current, [key]: value }));
+    setFieldErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   async function submit(event) {
     event.preventDefault();
     setMessage('');
     setError('');
+
+    const result = validatePatientForm(form);
+    if (!result.ok) {
+      setFieldErrors(result.errors);
+      setError(result.summary || 'Please correct the highlighted fields before saving.');
+      return;
+    }
 
     const confirmed = await confirm({
       title: 'Save patient?',
@@ -207,19 +222,13 @@ function PatientForm({ onCreated, healthCenters, user }) {
     });
     if (!confirmed) return;
 
-    const matchedCenter = findHealthCenterForBarangay(form.address, healthCenters);
+    const matchedCenter = findHealthCenterForBarangay(result.values.address, healthCenters);
     const healthCenterId = isBarangayStaff(user)
       ? user.health_center_id
       : (matchedCenter?.id || defaultHealthCenterId);
 
-    const invalidFields = [];
-    if (!form.first_name.trim()) invalidFields.push('First name is required.');
-    if (!form.last_name.trim()) invalidFields.push('Last name is required.');
-    if (!form.birth_date) invalidFields.push('Birth date is required.');
-    if (/[0-9]/.test(form.first_name) || /[0-9]/.test(form.last_name)) invalidFields.push('Names cannot contain numbers.');
-    if (form.contact_number && /\D/.test(form.contact_number.replace(/[+\-\s]/g, ''))) invalidFields.push('Contact number can only contain digits, spaces, +, and -.');
-    if (invalidFields.length) {
-      setError(invalidFields.join(' '));
+    if (!healthCenterId) {
+      setError('A barangay health center is required before saving this patient.');
       return;
     }
 
@@ -227,61 +236,61 @@ function PatientForm({ onCreated, healthCenters, user }) {
       const created = await api('/patients', {
         method: 'POST',
         body: JSON.stringify({
-          ...form,
-          health_center_id: healthCenterId ? Number(healthCenterId) : undefined,
+          ...result.values,
+          health_center_id: Number(healthCenterId),
         }),
       });
       setForm({ ...initialPatient, address: lockedAddress });
+      setFieldErrors({});
       setMessage(
         `Patient registered ${formatDateTime(created.created_at)} at ${created.health_center_name || centerName}.`,
       );
-      setError('');
       onCreated();
     } catch (err) {
-      const details = err.issues?.length
-        ? err.issues.map((issue) => `${issue.field}: ${issue.message}`).join(' ')
-        : err.message;
-      setError(details);
+      if (err.issues?.length) {
+        setFieldErrors(applyServerIssues(err.issues));
+      }
+      setError(err.message);
     }
   }
 
   return (
     <Card title="Patient Registration" icon={Users}>
-      <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
-        <Field label="First name">
-          <TextInput value={form.first_name} allowNumbers={false} onChange={(event) => update('first_name', event.target.value)} required />
+      <form onSubmit={submit} className="grid gap-3 md:grid-cols-2" noValidate>
+        <Field label="First name" error={fieldErrors.first_name}>
+          <TextInput value={form.first_name} onChange={(event) => update('first_name', event.target.value)} aria-invalid={Boolean(fieldErrors.first_name)} required />
         </Field>
-        <Field label="Middle name">
-          <TextInput value={form.middle_name} allowNumbers={false} onChange={(event) => update('middle_name', event.target.value)} />
+        <Field label="Middle name" error={fieldErrors.middle_name}>
+          <TextInput value={form.middle_name} onChange={(event) => update('middle_name', event.target.value)} aria-invalid={Boolean(fieldErrors.middle_name)} />
         </Field>
-        <Field label="Last name">
-          <TextInput value={form.last_name} allowNumbers={false} onChange={(event) => update('last_name', event.target.value)} required />
+        <Field label="Last name" error={fieldErrors.last_name}>
+          <TextInput value={form.last_name} onChange={(event) => update('last_name', event.target.value)} aria-invalid={Boolean(fieldErrors.last_name)} required />
         </Field>
-        <Field label="Birth date">
-          <TextInput type="date" value={form.birth_date} onChange={(event) => update('birth_date', event.target.value)} required />
+        <Field label="Birth date" error={fieldErrors.birth_date}>
+          <TextInput type="date" value={form.birth_date} onChange={(event) => update('birth_date', event.target.value)} aria-invalid={Boolean(fieldErrors.birth_date)} required />
         </Field>
-        <Field label="Sex">
+        <Field label="Sex" error={fieldErrors.sex}>
           <SelectInput value={form.sex} onChange={(event) => update('sex', event.target.value)}>
             <option value="female">Female</option>
             <option value="male">Male</option>
             <option value="other">Other</option>
           </SelectInput>
         </Field>
-        <Field label="Contact number">
-          <TextInput value={form.contact_number} numericOnly onChange={(event) => update('contact_number', event.target.value)} placeholder="Optional for SMS reminders" />
+        <Field label="Contact number" error={fieldErrors.contact_number} hint="Optional PH mobile for SMS reminders">
+          <TextInput value={form.contact_number} onChange={(event) => update('contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.contact_number)} />
         </Field>
-        <Field label="Email">
-          <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" />
+        <Field label="Email" error={fieldErrors.email}>
+          <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" aria-invalid={Boolean(fieldErrors.email)} />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2 md:col-span-2">
-          <Field label="Emergency contact name">
-            <TextInput value={form.emergency_contact_name} allowNumbers={false} onChange={(event) => update('emergency_contact_name', event.target.value)} />
+          <Field label="Emergency contact name" error={fieldErrors.emergency_contact_name}>
+            <TextInput value={form.emergency_contact_name} onChange={(event) => update('emergency_contact_name', event.target.value)} aria-invalid={Boolean(fieldErrors.emergency_contact_name)} />
           </Field>
-          <Field label="Emergency contact number">
-            <TextInput value={form.emergency_contact_number} numericOnly onChange={(event) => update('emergency_contact_number', event.target.value)} />
+          <Field label="Emergency contact number" error={fieldErrors.emergency_contact_number}>
+            <TextInput value={form.emergency_contact_number} onChange={(event) => update('emergency_contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.emergency_contact_number)} />
           </Field>
         </div>
-        <Field label="Address 1">
+        <Field label="Address 1" error={fieldErrors.address}>
           <SearchableSelect
             value={form.address}
             onChange={(nextValue) => update('address', nextValue)}
@@ -296,24 +305,29 @@ function PatientForm({ onCreated, healthCenters, user }) {
         <Field label="Address 2 (optional)">
           <TextInput value={form.address2} onChange={(event) => update('address2', event.target.value)} placeholder="Add (optional)" />
         </Field>
-        <Field label="City">
-          <TextInput value={form.city} allowNumbers={false} onChange={(event) => update('city', event.target.value)} />
+        <Field label="City" error={fieldErrors.city}>
+          <TextInput value={form.city} onChange={(event) => update('city', event.target.value)} aria-invalid={Boolean(fieldErrors.city)} />
         </Field>
-        <Field label="Postal code">
-          <TextInput value={form.postal_code} numericOnly onChange={(event) => update('postal_code', event.target.value)} />
+        <Field label="Postal code" error={fieldErrors.postal_code}>
+          <TextInput value={form.postal_code} onChange={(event) => update('postal_code', event.target.value)} aria-invalid={Boolean(fieldErrors.postal_code)} />
         </Field>
-        <Field label="Province">
-          <TextInput value={form.province} allowNumbers={false} onChange={(event) => update('province', event.target.value)} />
+        <Field label="Province" error={fieldErrors.province}>
+          <TextInput value={form.province} onChange={(event) => update('province', event.target.value)} aria-invalid={Boolean(fieldErrors.province)} />
         </Field>
         <RegistrationStamp recordedAt={liveNow} centerName={centerName} />
         <div className="flex flex-wrap gap-3 md:col-span-2">
           {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm">
+            <label key={key} className={classNames('flex items-center gap-2 rounded-xl px-3 py-2 text-sm', fieldErrors[key] ? 'bg-red-50 ring-1 ring-red-200' : 'bg-slate-50')}>
               <input type="checkbox" checked={form[key]} onChange={(event) => update(key, event.target.checked)} />
               {label}
             </label>
           ))}
         </div>
+        {(fieldErrors.is_pregnant || fieldErrors.is_infant || fieldErrors.is_child || fieldErrors.is_senior) ? (
+          <p className="text-xs font-medium text-red-600 md:col-span-2">
+            {fieldErrors.is_pregnant || fieldErrors.is_infant || fieldErrors.is_child || fieldErrors.is_senior}
+          </p>
+        ) : null}
         <Field label="Medical notes">
           <textarea
             value={form.medical_notes}
@@ -337,6 +351,8 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
   const confirm = useConfirm();
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialPatient);
+  const [editError, setEditError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const barangayCenters = healthCenters.filter((center) => center.type === 'barangay');
   const editingPatient = patients.find((patient) => patient.id === editingId);
   const lockAddress = isBarangayStaff(user);
@@ -351,6 +367,8 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
 
   function startEdit(patient) {
     setEditingId(patient.id);
+    setEditError('');
+    setFieldErrors({});
     setForm({
       first_name: patient.first_name || '',
       middle_name: patient.middle_name || '',
@@ -375,6 +393,14 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
 
   async function saveEdit(event) {
     event.preventDefault();
+    setEditError('');
+
+    const result = validatePatientForm(form);
+    if (!result.ok) {
+      setFieldErrors(result.errors);
+      setEditError(result.summary || 'Please correct the highlighted fields before saving.');
+      return;
+    }
 
     const confirmed = await confirm({
       title: 'Save changes?',
@@ -383,9 +409,15 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
     });
     if (!confirmed) return;
 
-    await api(`/patients/${editingId}`, { method: 'PATCH', body: JSON.stringify(form) });
-    setEditingId(null);
-    await onRefresh();
+    try {
+      await api(`/patients/${editingId}`, { method: 'PATCH', body: JSON.stringify(result.values) });
+      setEditingId(null);
+      setFieldErrors({});
+      await onRefresh();
+    } catch (err) {
+      if (err.issues?.length) setFieldErrors(applyServerIssues(err.issues));
+      setEditError(err.message);
+    }
   }
 
   return (
@@ -429,7 +461,7 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
       </FilterPanel>
 
       <ExpandPanel open={Boolean(editingId)} className="mb-6 overflow-hidden">
-        <form onSubmit={saveEdit} className="overflow-hidden rounded-2xl border border-cyan-200/80 bg-cyan-50/40">
+        <form onSubmit={saveEdit} className="overflow-hidden rounded-2xl border border-cyan-200/80 bg-cyan-50/40" noValidate>
           <div className="border-b border-cyan-100 bg-white/80 px-4 py-3">
             <p className="text-sm font-semibold text-slate-900">Edit patient</p>
             <p className="text-xs text-slate-500">
@@ -437,22 +469,22 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
             </p>
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
-            <Field label="First name">
-              <TextInput value={form.first_name} allowNumbers={false} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required />
+            <Field label="First name" error={fieldErrors.first_name}>
+              <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} aria-invalid={Boolean(fieldErrors.first_name)} required />
             </Field>
-            <Field label="Last name">
-              <TextInput value={form.last_name} allowNumbers={false} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required />
+            <Field label="Last name" error={fieldErrors.last_name}>
+              <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} aria-invalid={Boolean(fieldErrors.last_name)} required />
             </Field>
-            <Field label="Birth date">
-              <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} required />
+            <Field label="Birth date" error={fieldErrors.birth_date}>
+              <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} aria-invalid={Boolean(fieldErrors.birth_date)} required />
             </Field>
-            <Field label="Contact number">
-              <TextInput value={form.contact_number} numericOnly onChange={(event) => setForm({ ...form, contact_number: event.target.value })} />
+            <Field label="Contact number" error={fieldErrors.contact_number}>
+              <TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.contact_number)} />
             </Field>
-            <Field label="Email">
-              <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+            <Field label="Email" error={fieldErrors.email}>
+              <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} aria-invalid={Boolean(fieldErrors.email)} />
             </Field>
-            <Field label="Address 1">
+            <Field label="Address 1" error={fieldErrors.address}>
               <SearchableSelect
                 value={form.address}
                 onChange={(nextValue) => setForm({ ...form, address: nextValue })}
@@ -467,14 +499,14 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
             <Field label="Address 2 (optional)">
               <TextInput value={form.address2} onChange={(event) => setForm({ ...form, address2: event.target.value })} placeholder="Add (optional)" />
             </Field>
-            <Field label="City">
-              <TextInput value={form.city} allowNumbers={false} onChange={(event) => setForm({ ...form, city: event.target.value })} />
+            <Field label="City" error={fieldErrors.city}>
+              <TextInput value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} aria-invalid={Boolean(fieldErrors.city)} />
             </Field>
-            <Field label="Postal code">
-              <TextInput value={form.postal_code} numericOnly onChange={(event) => setForm({ ...form, postal_code: event.target.value })} />
+            <Field label="Postal code" error={fieldErrors.postal_code}>
+              <TextInput value={form.postal_code} onChange={(event) => setForm({ ...form, postal_code: event.target.value })} aria-invalid={Boolean(fieldErrors.postal_code)} />
             </Field>
-            <Field label="Province">
-              <TextInput value={form.province} allowNumbers={false} onChange={(event) => setForm({ ...form, province: event.target.value })} />
+            <Field label="Province" error={fieldErrors.province}>
+              <TextInput value={form.province} onChange={(event) => setForm({ ...form, province: event.target.value })} aria-invalid={Boolean(fieldErrors.province)} />
             </Field>
             <div className="flex flex-wrap items-end gap-3">
               {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
@@ -483,6 +515,9 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
                   {label}
                 </label>
               ))}
+            </div>
+            <div className="md:col-span-2">
+              <FlashMessage message={editError} type="error" />
             </div>
             <FormActions className="border-cyan-100 bg-white/70 px-4 py-3 md:col-span-2">
               <PrimaryButton>Save changes</PrimaryButton>

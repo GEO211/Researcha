@@ -13,6 +13,7 @@ import {
   useConfirm,
 } from '../components/ui';
 import { roleLabel } from '../components/helpers';
+import { permissionsForRole } from '@shared/rbac';
 
 export default function Profile({ session, onSessionUpdate }) {
   const confirm = useConfirm();
@@ -58,6 +59,13 @@ export default function Profile({ session, onSessionUpdate }) {
           <AnimatedPanel className="mb-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
             <p><strong>Role:</strong> {roleLabel(session.user.role)}</p>
             <p><strong>Health Center:</strong> {session.user.health_center_name || 'System-wide'}</p>
+            <div className="mt-3 flex flex-wrap gap-1">
+              {(session.user.permissions || permissionsForRole(session.user.role)).map((permission) => (
+                <span key={permission} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">
+                  {permission}
+                </span>
+              ))}
+            </div>
           </AnimatedPanel>
           <form onSubmit={saveProfile} className="space-y-3">
             <Field label="Name"><TextInput value={profile.name} onChange={(event) => setProfile({ ...profile, name: event.target.value })} required /></Field>

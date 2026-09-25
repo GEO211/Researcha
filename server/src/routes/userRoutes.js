@@ -4,21 +4,25 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { createUser, getHealthCenter, getUser, listUsers, updateUser } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
-const sanitizedName = z.string().trim().min(2).refine((value) => !/\d/.test(value), { message: 'Name must not contain numbers.' });
+const userNameSchema = z.string()
+  .trim()
+  .min(2, 'Name is required.')
+  .refine((value) => !/\d/.test(value), { message: 'Name must not contain numbers.' });
 
 const userSchema = z.object({
   health_center_id: z.coerce.number().int().positive().optional().nullable(),
-  name: sanitizedName,
-  email: z.string().email(),
-  password: z.string().min(8).optional(),
-  role: z.enum(['super_admin', 'barangay_staff', 'city_staff']),
-  status: z.enum(['active', 'disabled']).default('active'),
+  name: userNameSchema,
+  email: z.string().trim().email('Enter a valid email address.'),
+  password: z.string().min(8, 'Password must be at least 8 characters.').optional(),
+  role: z.enum(['super_admin', 'barangay_staff', 'city_staff'], { message: 'Select a valid role.' }),
+  status: z.enum(['active', 'disabled'], { message: 'Select a valid status.' }).default('active'),
 });
 
-router.get('/', authenticate, authorize('super_admin'), async (_req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (_req, res, next) => {
   try {
     const users = await listUsers();
     res.json({ users: users.map(({ password, ...user }) => user) });
@@ -46,7 +50,7 @@ async function assignmentError(role, healthCenterId) {
   return null;
 }
 
-router.post('/', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.post('/', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (req, res, next) => {
   try {
     const data = userSchema.required({ password: true }).parse(req.body);
     const invalid = await assignmentError(data.role, data.health_center_id);
@@ -61,7 +65,7 @@ router.post('/', authenticate, authorize('super_admin'), async (req, res, next) 
   }
 });
 
-router.patch('/:id', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.patch('/:id', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = userSchema.partial().parse(req.body);

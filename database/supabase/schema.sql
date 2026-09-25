@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS patients (
 
 CREATE INDEX IF NOT EXISTS idx_patients_name ON patients (last_name, first_name);
 CREATE INDEX IF NOT EXISTS idx_patients_contact ON patients (contact_number);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_identity
+  ON patients (lower(btrim(first_name)), lower(btrim(last_name)), birth_date);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_contact
+  ON patients (regexp_replace(contact_number, '\D', '', 'g'))
+  WHERE contact_number IS NOT NULL AND btrim(contact_number) <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_email
+  ON patients (lower(btrim(email)))
+  WHERE email IS NOT NULL AND btrim(email) <> '';
 
 CREATE TABLE IF NOT EXISTS referrals (
   id SERIAL PRIMARY KEY,

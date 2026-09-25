@@ -385,52 +385,62 @@ export async function getPatient(id) {
   return attachPatientCenter(await getRowById(TABLES.patients, id));
 }
 
-function normalizeText(value) {
-  return String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
+export async function findDuplicatePatient({
+  first_name,
+  last_name,
+  birth_date,
+  contact_number,
+  email,
+  excludeId,
+} = {}) {
+  const clauses = [];
+  const params = [];
 
-function normalizePhone(value) {
-  const digits = String(value ?? '').replace(/\D/g, '');
-  if (!digits) return '';
-
-  if (digits.startsWith('63')) return digits;
-  if (digits.startsWith('0')) return `63${digits.slice(1)}`;
-  if (digits.length === 10 && digits.startsWith('9')) return `63${digits}`;
-  return digits;
-}
-
-export async function findExistingPatient(candidate = {}) {
-  const firstName = normalizeText(candidate.first_name);
-  const lastName = normalizeText(candidate.last_name);
-  const birthDate = String(candidate.birth_date || '').slice(0, 10);
-  const contact = normalizePhone(candidate.contact_number);
-  const address = normalizeText(candidate.address);
-  const city = normalizeText(candidate.city);
-
-  if (!firstName || !lastName || !birthDate) {
-    return null;
+  if (first_name && last_name && birth_date) {
+    params.push(first_name, last_name, String(birth_date).slice(0, 10));
+    clauses.push(
+      `(lower(btrim(first_name)) = lower(btrim($${params.length - 2})) AND lower(btrim(last_name)) = lower(btrim($${params.length - 1})) AND birth_date = $${params.length}::date)`,
+    );
   }
 
-  const sql = `
-    SELECT *
-    FROM ${TABLES.patients}
-    WHERE LOWER(TRIM(first_name)) = LOWER(TRIM($1))
-      AND LOWER(TRIM(last_name)) = LOWER(TRIM($2))
-      AND birth_date = $3
-      AND (
-        ($4 <> '' AND regexp_replace(COALESCE(contact_number, ''), '[^0-9]', '', 'g') = $4)
-        OR (
-          LOWER(TRIM(COALESCE(address, ''))) = LOWER(TRIM($5))
-          AND LOWER(TRIM(COALESCE(city, ''))) = LOWER(TRIM($6))
-        )
-      )
-    LIMIT 1
-  `;
+  const contactDigits = String(contact_number || '').replace(/\D/g, '');
+  if (contactDigits) {
+    params.push(contactDigits);
+    clauses.push(
+      `(contact_number IS NOT NULL AND btrim(contact_number) <> '' AND regexp_replace(contact_number, '\\D', '', 'g') = $${params.length})`,
+    );
+  }
 
-  const existing = await selectOne(sql, [firstName, lastName, birthDate, contact, address, city]);
-  if (!existing) return null;
+  const emailKey = String(email || '').trim().toLowerCase();
+  if (emailKey) {
+    params.push(emailKey);
+    clauses.push(
+      `(email IS NOT NULL AND btrim(email) <> '' AND lower(btrim(email)) = $${params.length})`,
+    );
+  }
 
-  return attachPatientCenter(existing);
+  if (!clauses.length) return null;
+
+  let sql = `SELECT * FROM ${TABLES.patients} WHERE (${clauses.join(' OR ')})`;
+  if (excludeId) {
+    params.push(Number(excludeId));
+    sql += ` AND id <> $${params.length}`;
+  }
+  sql += ' ORDER BY id ASC LIMIT 1';
+
+  const row = await selectOne(sql, params);
+  if (!row) return null;
+
+  const sameName = String(row.first_name || '').trim().toLowerCase() === String(first_name || '').trim().toLowerCase()
+    && String(row.last_name || '').trim().toLowerCase() === String(last_name || '').trim().toLowerCase()
+    && String(row.birth_date || '').slice(0, 10) === String(birth_date || '').slice(0, 10);
+  const sameContact = contactDigits && String(row.contact_number || '').replace(/\D/g, '') === contactDigits;
+  const sameEmail = emailKey && String(row.email || '').trim().toLowerCase() === emailKey;
+  let reason = 'identity';
+  if (!sameName && sameContact) reason = 'contact';
+  else if (!sameName && sameEmail) reason = 'email';
+
+  return { ...row, match_reason: reason };
 }
 
 export async function createPatient(data) {
@@ -1063,6 +1073,24 @@ export async function createPerformanceMetric(data) {
 }
 
 export async function getDashboardSummary(user) {
+  if (user?.role === 'patient') {
+    const tracking = user.tracking_code ? await getPublicTracking(user.tracking_code) : null;
+    return {
+      patientPortal: true,
+      tracking,
+      patientCount: 1,
+      referralCounts: tracking ? [{ status: tracking.display_status || tracking.status, count: 1 }] : [],
+      queueCounts: [],
+      smsCounts: [],
+      operationalCounts: {},
+      demographicDistribution: {},
+      referralTrend: [],
+      centerDistribution: [],
+      urgencyDistribution: [],
+      performanceMetrics: [],
+    };
+  }
+
   const roleFilter = user.role === 'barangay_staff' ? user.health_center_id : null;
 
   // Always read full tables from the database (not listReferrals/listPatients which cap at 100).

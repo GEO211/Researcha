@@ -4,6 +4,7 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { getReferral, listSmsLogs } from '../lib/supabase/store.js';
 import { sendSms } from '../services/smsService.js';
 import { audit } from '../services/auditService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ const manualSmsSchema = z.object({
   message: z.string().min(5).max(320),
 });
 
-router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.SMS_VIEW), async (_req, res, next) => {
   try {
     const logs = await listSmsLogs();
     res.json({ logs });
@@ -21,7 +22,7 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (_re
   }
 });
 
-router.post('/manual', authenticate, authorize('super_admin', 'city_staff'), async (req, res, next) => {
+router.post('/manual', authenticate, authorize(PERMISSIONS.SMS_SEND), async (req, res, next) => {
   try {
     const data = manualSmsSchema.parse(req.body);
     const referral = await getReferral(data.referral_id);

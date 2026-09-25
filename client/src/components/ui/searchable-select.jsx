@@ -60,9 +60,9 @@ export function SearchableSelect({
     const viewportPad = 12;
     const spaceBelow = window.innerHeight - rect.bottom - viewportPad;
     const spaceAbove = rect.top - viewportPad;
-    const preferred = 288;
-    const openUp = spaceBelow < 160 && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(140, Math.min(preferred, openUp ? spaceAbove - gap : spaceBelow - gap));
+    const preferred = 320;
+    const openUp = spaceBelow < 240 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(180, Math.min(preferred, openUp ? spaceAbove - gap : spaceBelow - gap));
     setMenuStyle({
       top: openUp ? rect.top - gap : rect.bottom + gap,
       left: Math.min(rect.left, window.innerWidth - rect.width - viewportPad),

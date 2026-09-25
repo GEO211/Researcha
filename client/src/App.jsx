@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HeartPulse, LogOut, Menu, X } from 'lucide-react';
-import { api, clearSession, getStoredSession } from './api';
+import { api, clearSession, flushOfflineNow, getStoredSession } from './api';
 import { classNames, roleLabel, tabIcon, tabLabel } from './components/helpers';
 import { LoadingOverlay } from './components/ui';
+import { OfflineBanner } from './components/offline-banner';
 import Admin from './pages/Admin';
 import Analytics from './pages/Analytics';
 import Dashboard from './pages/Dashboard';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import PublicQueueBoard from './pages/PublicQueueBoard';
+import PatientHome from './pages/PatientHome';
 import Patients from './pages/Patients';
 import Profile from './pages/Profile';
 import Queue from './pages/Queue';
 import Referrals from './pages/Referrals';
 import Tracking from './pages/Tracking';
+import { PERMISSIONS, hasPermission, navigationForRole, permissionsForRole } from '@shared/rbac';
 
 function App() {
   const [session, setSession] = useState(getStoredSession());
@@ -38,6 +41,7 @@ function App() {
   const [referralFilters, setReferralFilters] = useState({ q: '', status: '', priority_level: '' });
   const [emailLogs, setEmailLogs] = useState([]);
   const [patientFilters, setPatientFilters] = useState({ q: '', city: '', province: '', contact_number: '', email: '', health_center_id: '' });
+  const [patientTracking, setPatientTracking] = useState(null);
   const [error, setError] = useState('');
   const [dataLoading, setDataLoading] = useState(false);
   const [dataReady, setDataReady] = useState(false);
@@ -45,32 +49,21 @@ function App() {
   const [authView, setAuthView] = useState('landing');
 
   const user = session?.user;
-  const canManage = user?.role === 'super_admin';
-  const canReview = user?.role === 'city_staff';
-  const canSubmit = user?.role === 'barangay_staff';
-  const canUseQueue = canReview || canSubmit;
-  const canTrack = !canManage;
+  const role = user?.role;
+  const can = (...keys) => hasPermission(role, ...keys);
+  const canManage = can(PERMISSIONS.USERS_MANAGE);
+  const canReview = can(PERMISSIONS.REFERRALS_REVIEW);
+  const canCreatePatients = can(PERMISSIONS.PATIENTS_CREATE);
+  const canCreateReferrals = can(PERMISSIONS.REFERRALS_CREATE);
+  const canViewPatients = can(PERMISSIONS.PATIENTS_VIEW) || canCreatePatients;
+  const canViewReferrals = can(PERMISSIONS.REFERRALS_VIEW, PERMISSIONS.REFERRALS_CREATE, PERMISSIONS.REFERRALS_REVIEW);
+  const canViewCenters = can(PERMISSIONS.CENTERS_VIEW, PERMISSIONS.CENTERS_MANAGE);
+  const canViewAnalytics = can(PERMISSIONS.ANALYTICS_VIEW);
+  const canUseQueue = can(PERMISSIONS.QUEUE_VIEW);
+  const canTrack = can(PERMISSIONS.TRACKING_VIEW, PERMISSIONS.TRACKING_OWN);
+  const isPatient = role === 'patient';
 
-  const tabs = useMemo(() => {
-    if (canManage) {
-      return [
-        { id: 'dashboard', label: 'Dashboard' },
-        { id: 'admin-users', label: 'Users' },
-        { id: 'admin-centers', label: 'Health Centers' },
-        { id: 'admin-settings', label: 'System Settings' },
-        { id: 'admin-sms', label: 'SMS Logs' },
-        { id: 'admin-email', label: 'Email Logs' },
-        { id: 'admin-audit', label: 'Audit Logs' },
-      ];
-    }
-
-    const items = [{ id: 'dashboard', label: 'Dashboard' }];
-    if (canSubmit) items.push({ id: 'patients', label: 'Patients' }, { id: 'referrals', label: 'Referrals' });
-    if (canUseQueue) items.push({ id: 'queue', label: 'Queue' });
-    if (canReview) items.push({ id: 'analytics', label: 'Analytics' });
-    items.push({ id: 'tracking', label: 'Tracking' }, { id: 'profile', label: 'Profile' });
-    return items;
-  }, [canManage, canReview, canSubmit, canUseQueue]);
+  const tabs = useMemo(() => navigationForRole(role), [role]);
 
   const loadData = useCallback(async () => {
     if (!session) return;
@@ -78,6 +71,7 @@ function App() {
     setError('');
 
     try {
+      flushOfflineNow().catch(() => {});
       const referralQuery = new URLSearchParams(
         Object.fromEntries(Object.entries(referralFilters).filter(([, value]) => value)),
       ).toString();
@@ -85,7 +79,21 @@ function App() {
         Object.fromEntries(Object.entries(patientFilters).filter(([, value]) => value)),
       ).toString();
 
-      // Super Admin only needs dashboard + admin data.
+      if (isPatient) {
+        const [summaryResult, trackingResult] = await Promise.allSettled([
+          api('/dashboard/summary'),
+          user?.tracking_code ? api(`/public/track/${encodeURIComponent(user.tracking_code)}`) : Promise.resolve(null),
+        ]);
+        if (summaryResult.status === 'fulfilled') setSummary(summaryResult.value);
+        const trackingData = trackingResult.status === 'fulfilled' ? trackingResult.value : null;
+        setPatientTracking(trackingData?.tracking || trackingData || summaryResult.value?.tracking || null);
+        if (summaryResult.status === 'rejected' && trackingResult.status === 'rejected') {
+          setError(summaryResult.reason?.message || 'Unable to load your care status.');
+        }
+        setDataReady(true);
+        return;
+      }
+
       const core = canManage
         ? await Promise.allSettled([
             api('/dashboard/summary'),
@@ -93,9 +101,15 @@ function App() {
           ])
         : await Promise.allSettled([
             api('/dashboard/summary'),
-            api(`/patients${patientQuery ? `?${patientQuery}` : ''}`),
-            api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`),
-            api('/health-centers'),
+            canViewPatients
+              ? api(`/patients${patientQuery ? `?${patientQuery}` : ''}`)
+              : Promise.resolve({ patients: [] }),
+            canViewReferrals
+              ? api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`)
+              : Promise.resolve({ referrals: [] }),
+            canViewCenters
+              ? api('/health-centers')
+              : Promise.resolve({ healthCenters: [] }),
           ]);
 
       if (canManage) {
@@ -132,12 +146,10 @@ function App() {
         }
       }
 
-      const reviewRequests = canUseQueue
-        ? [
-            api('/queue'),
-            ...(canReview ? [api('/analytics')] : [Promise.resolve({})]),
-          ]
-        : [Promise.resolve({ queue: [] }), Promise.resolve({})];
+      const reviewRequests = [
+        canUseQueue ? api('/queue') : Promise.resolve({ queue: [] }),
+        canViewAnalytics ? api('/analytics') : Promise.resolve({}),
+      ];
       const adminRequests = canManage
         ? [api('/users'), api('/settings'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
         : [Promise.resolve({ users: [] }), Promise.resolve({ settings: [], rules: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
@@ -166,7 +178,7 @@ function App() {
     } finally {
       setDataLoading(false);
     }
-  }, [canManage, canReview, canUseQueue, patientFilters, referralFilters, session]);
+  }, [canManage, canReview, canUseQueue, canViewPatients, canViewReferrals, canViewCenters, canViewAnalytics, isPatient, patientFilters, referralFilters, role, session, user?.tracking_code]);
 
   useEffect(() => {
     function handlePopState() {
@@ -271,6 +283,9 @@ function App() {
           <p className="text-sm font-semibold">{user.name}</p>
           <p className="mt-1 text-xs text-slate-400">{roleLabel(user.role)}</p>
           <p className="mt-1 truncate text-xs text-slate-500">{user.health_center_name || 'System-wide access'}</p>
+          <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">
+            {(user.permissions || permissionsForRole(role)).length} RBAC permissions
+          </p>
         </div>
       </div>
 
@@ -353,6 +368,7 @@ function App() {
         </header>
 
         <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+          <OfflineBanner />
           <LoadingOverlay open={dataLoading} label="Loading records from database" />
           {error ? <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
           {!dataReady && !error ? (
@@ -360,8 +376,13 @@ function App() {
               <p className="text-sm font-medium text-slate-500">Fetching live data from Supabase…</p>
             </div>
           ) : null}
-          {dataReady && activeTab === 'dashboard' ? <Dashboard key="dashboard" summary={summary} /> : null}
-          {dataReady && activeTab === 'patients' && canSubmit ? (
+          {dataReady && activeTab === 'dashboard' && isPatient ? (
+            <PatientHome key="patient-home" user={user} tracking={patientTracking || summary.tracking} />
+          ) : null}
+          {dataReady && activeTab === 'dashboard' && !isPatient ? (
+            <Dashboard key="dashboard" summary={summary} canUseAi={can(PERMISSIONS.DASHBOARD_AI)} />
+          ) : null}
+          {dataReady && activeTab === 'patients' && canCreatePatients ? (
             <Patients
               key="patients"
               patients={patients}
@@ -372,7 +393,7 @@ function App() {
               onRefresh={loadData}
             />
           ) : null}
-          {dataReady && activeTab === 'referrals' && canSubmit ? (
+          {dataReady && activeTab === 'referrals' && (canCreateReferrals || canReview) ? (
             <Referrals
               key="referrals"
               patients={patients}
@@ -381,14 +402,17 @@ function App() {
               filters={referralFilters}
               setFilters={setReferralFilters}
               canReview={canReview}
+              canCreate={canCreateReferrals}
               user={user}
               onRefresh={loadData}
             />
           ) : null}
           {dataReady && activeTab === 'queue' && canUseQueue ? <Queue key="queue" user={user} onRefresh={loadData} /> : null}
-          {dataReady && activeTab === 'analytics' && canReview ? <Analytics key="analytics" analytics={analytics} /> : null}
-          {dataReady && activeTab === 'tracking' && canTrack ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
-          {dataReady && activeTab === 'profile' && !canManage ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
+          {dataReady && activeTab === 'analytics' && canViewAnalytics ? <Analytics key="analytics" analytics={analytics} /> : null}
+          {dataReady && activeTab === 'tracking' && canTrack ? (
+            <Tracking key="tracking" initialCode={user?.tracking_code || pathTrackingCode} />
+          ) : null}
+          {dataReady && activeTab === 'profile' && can(PERMISSIONS.PROFILE_VIEW) ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
           {dataReady && activeTab.startsWith('admin-') && canManage ? (
             <Admin
               key={activeTab}

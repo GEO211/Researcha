@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getAiCaseInsights } from '../lib/supabase/store.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
@@ -11,7 +12,7 @@ function aiBaseUrl() {
   return `https://${raw}`;
 }
 
-router.get('/health', authenticate, authorize('super_admin', 'city_staff', 'barangay_staff'), async (_req, res) => {
+router.get('/health', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (_req, res) => {
   try {
     const response = await fetch(`${aiBaseUrl()}/health`);
     const data = await response.json().catch(() => ({}));
@@ -40,7 +41,7 @@ router.get('/health', authenticate, authorize('super_admin', 'city_staff', 'bara
   }
 });
 
-router.get('/insights', authenticate, authorize('super_admin', 'city_staff', 'barangay_staff'), async (req, res) => {
+router.get('/insights', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (req, res) => {
   const rawDays = req.query.days;
   // Default days=0 → analyze ALL referral rows in the database.
   const days = rawDays === undefined || rawDays === '' || rawDays === 'all'

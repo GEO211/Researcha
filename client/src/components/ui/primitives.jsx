@@ -24,12 +24,14 @@ export function Card({ title, icon: Icon, children, className }) {
   );
 }
 
-export function Field({ label, children }) {
+export function Field({ label, children, error, hint }) {
   return (
-    <label className="block text-sm font-medium text-slate-700">
+    <div className="block text-sm font-medium text-slate-700">
       <span className="mb-1 block">{label}</span>
       {children}
-    </label>
+      {error ? <p className="mt-1 text-xs font-medium text-red-600">{error}</p> : null}
+      {!error && hint ? <p className="mt-1 text-xs font-normal text-slate-500">{hint}</p> : null}
+    </div>
   );
 }
 
@@ -61,7 +63,10 @@ export function TextInput({ className, allowNumbers = true, numericOnly = false,
       onChange={handleChange}
       inputMode={numericOnly ? 'numeric' : props.inputMode}
       className={cn(
-        'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100',
+        'w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2',
+        props['aria-invalid']
+          ? 'border-red-400 focus:border-red-500 focus:ring-red-100'
+          : 'border-slate-300 focus:border-cyan-600 focus:ring-cyan-100',
         className,
       )}
     />

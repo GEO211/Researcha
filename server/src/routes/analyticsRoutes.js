@@ -7,6 +7,7 @@ import {
   exportSmsRows,
   getAnalyticsSummary,
 } from '../lib/supabase/store.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ function sendCsv(res, filename, rows, fallbackColumns) {
   res.send(csv);
 }
 
-router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
     const data = await getAnalyticsSummary();
     res.json(data);
@@ -29,7 +30,7 @@ router.get('/', authenticate, authorize('super_admin', 'city_staff'), async (_re
   }
 });
 
-router.get('/export/referrals.csv', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/export/referrals.csv', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
     const rows = await exportReferralsRows();
     sendCsv(res, 'carelink-referrals.csv', rows.map((r) => ({
@@ -64,7 +65,7 @@ router.get('/export/referrals.csv', authenticate, authorize('super_admin', 'city
   }
 });
 
-router.get('/export/patients.csv', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/export/patients.csv', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
     const rows = await exportPatientsRows();
     sendCsv(res, 'carelink-patients.csv', rows, {
@@ -89,7 +90,7 @@ router.get('/export/patients.csv', authenticate, authorize('super_admin', 'city_
   }
 });
 
-router.get('/export/queue.csv', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/export/queue.csv', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
     const rows = await exportQueueRows();
     sendCsv(res, 'carelink-queue.csv', rows, {
@@ -108,7 +109,7 @@ router.get('/export/queue.csv', authenticate, authorize('super_admin', 'city_sta
   }
 });
 
-router.get('/export/sms.csv', authenticate, authorize('super_admin', 'city_staff'), async (_req, res, next) => {
+router.get('/export/sms.csv', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
     const rows = await exportSmsRows();
     sendCsv(res, 'carelink-sms-logs.csv', rows.map((r) => ({

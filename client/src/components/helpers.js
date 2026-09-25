@@ -8,7 +8,8 @@ export function roleLabel(role) {
   return {
     super_admin: 'Super Admin',
     barangay_staff: 'Barangay Staff',
-    city_staff: 'City Staff',
+    city_staff: 'City Health Personnel',
+    patient: 'Patient',
   }[role] || role;
 }
 

@@ -47,6 +47,7 @@ import {
 import { classNames, formatDateTime, priorityLabel } from '../components/helpers';
 import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
 import { PATIENT_CLASSIFICATION_FIELDS, emptyPatientClassifications } from '../data/patientClassifications';
+import { applyServerIssues, validatePatientForm } from '../lib/patientValidation';
 
 const initialReferral = {
   patient_id: '',
@@ -275,13 +276,13 @@ function WorkflowGuide({ canReview }) {
   );
 }
 
-export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, user, onRefresh }) {
-  const [activeCategory, setActiveCategory] = useState('new');
+export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, canCreate = !canReview, user, onRefresh }) {
+  const [activeCategory, setActiveCategory] = useState(canCreate ? 'new' : 'records');
   const [recordsTab, setRecordsTab] = useState('list');
   const [statusGroup, setStatusGroup] = useState(canReview ? 'pending' : 'all');
 
   const categories = [
-    { id: 'new', label: 'New Referral', description: 'Submit and instantly queue with SMS', icon: ClipboardList },
+    ...(canCreate ? [{ id: 'new', label: 'New Referral', description: 'Submit and instantly queue with SMS', icon: ClipboardList }] : []),
     { id: 'records', label: 'Referral Records', description: 'Search, review, and manage referrals', icon: ListChecks },
   ];
 
@@ -468,6 +469,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
   const [quickPatient, setQuickPatient] = useState(initialQuickPatient);
   const [patientMessage, setPatientMessage] = useState('');
   const [patientError, setPatientError] = useState('');
+  const [patientFieldErrors, setPatientFieldErrors] = useState({});
   const [registeringPatient, setRegisteringPatient] = useState(false);
   const receivingCenters = healthCenters.filter((center) => center.status === 'active');
   const defaultHealthCenterId = healthCenters.find((center) => center.type === 'barangay' && center.status === 'active')?.id;
@@ -514,6 +516,17 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
     setPatientMessage('');
     setPatientError('');
 
+    const result = validatePatientForm({
+      ...quickPatient,
+      email: quickPatient.email || '',
+      postal_code: quickPatient.postal_code || '9506',
+    }, { requireContact: true });
+    if (!result.ok) {
+      setPatientFieldErrors(result.errors);
+      setPatientError(result.summary || 'Please correct the highlighted patient fields.');
+      return;
+    }
+
     const confirmed = await confirm({
       title: 'Register patient?',
       message: 'Save this patient and use them for this referral?',
@@ -521,7 +534,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
     });
     if (!confirmed) return;
 
-    const matchedCenter = findHealthCenterForBarangay(quickPatient.address, healthCenters);
+    const matchedCenter = findHealthCenterForBarangay(result.values.address, healthCenters);
     const healthCenterId = user?.role === 'barangay_staff'
       ? user.health_center_id
       : (matchedCenter?.id || defaultHealthCenterId);
@@ -536,7 +549,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
       const created = await api('/patients', {
         method: 'POST',
         body: JSON.stringify({
-          ...quickPatient,
+          ...result.values,
           health_center_id: Number(healthCenterId),
         }),
       });
@@ -547,15 +560,14 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
         receiving_health_center_id: String(created.health_center_id || healthCenterId),
       }));
       setQuickPatient({ ...initialQuickPatient, address: lockedAddress });
+      setPatientFieldErrors({});
       setPatientMode('existing');
       setPatientMessage(
         `${created.first_name} ${created.last_name} registered ${formatDateTime(created.created_at)} at ${created.health_center_name || 'the health center'} and selected.`,
       );
     } catch (err) {
-      const details = err.issues?.length
-        ? err.issues.map((issue) => `${issue.field}: ${issue.message}`).join(' ')
-        : err.message;
-      setPatientError(details);
+      if (err.issues?.length) setPatientFieldErrors(applyServerIssues(err.issues));
+      setPatientError(err.message);
     } finally {
       setRegisteringPatient(false);
     }
@@ -702,30 +714,30 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                   <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
                     <p className="mb-3 text-sm font-medium text-emerald-900">Quick patient registration</p>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      <Field label="First name">
-                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} required />
+                      <Field label="First name" error={patientFieldErrors.first_name}>
+                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.first_name)} required />
                       </Field>
-                      <Field label="Middle name">
-                        <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} />
+                      <Field label="Middle name" error={patientFieldErrors.middle_name}>
+                        <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.middle_name)} />
                       </Field>
-                      <Field label="Last name">
-                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} required />
+                      <Field label="Last name" error={patientFieldErrors.last_name}>
+                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.last_name)} required />
                       </Field>
-                      <Field label="Birth date">
-                        <TextInput type="date" value={quickPatient.birth_date} onChange={(event) => updateQuickPatient('birth_date', event.target.value)} required />
+                      <Field label="Birth date" error={patientFieldErrors.birth_date}>
+                        <TextInput type="date" value={quickPatient.birth_date} onChange={(event) => updateQuickPatient('birth_date', event.target.value)} aria-invalid={Boolean(patientFieldErrors.birth_date)} required />
                       </Field>
-                      <Field label="Sex">
+                      <Field label="Sex" error={patientFieldErrors.sex}>
                         <SelectInput value={quickPatient.sex} onChange={(event) => updateQuickPatient('sex', event.target.value)}>
                           <option value="female">Female</option>
                           <option value="male">Male</option>
                           <option value="other">Other</option>
                         </SelectInput>
                       </Field>
-                      <Field label="Contact number">
-                        <TextInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} placeholder="09XXXXXXXXX" required />
+                      <Field label="Contact number" error={patientFieldErrors.contact_number}>
+                        <TextInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(patientFieldErrors.contact_number)} required />
                       </Field>
                       <div className="sm:col-span-2 lg:col-span-3">
-                        <Field label="Address 1">
+                        <Field label="Address 1" error={patientFieldErrors.address}>
                           <SearchableSelect
                             value={quickPatient.address}
                             onChange={(nextValue) => updateQuickPatient('address', nextValue)}
@@ -743,11 +755,11 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                           <TextInput value={quickPatient.address2} onChange={(event) => updateQuickPatient('address2', event.target.value)} placeholder="Add (optional)" />
                         </Field>
                       </div>
-                      <Field label="City">
-                        <TextInput value={quickPatient.city} onChange={(event) => updateQuickPatient('city', event.target.value)} />
+                      <Field label="City" error={patientFieldErrors.city}>
+                        <TextInput value={quickPatient.city} onChange={(event) => updateQuickPatient('city', event.target.value)} aria-invalid={Boolean(patientFieldErrors.city)} />
                       </Field>
-                      <Field label="Province">
-                        <TextInput value={quickPatient.province} onChange={(event) => updateQuickPatient('province', event.target.value)} />
+                      <Field label="Province" error={patientFieldErrors.province}>
+                        <TextInput value={quickPatient.province} onChange={(event) => updateQuickPatient('province', event.target.value)} aria-invalid={Boolean(patientFieldErrors.province)} />
                       </Field>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-3">

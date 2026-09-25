@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { listPriorityRules, listSystemSettings, updatePriorityRule, upsertSystemSetting } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
@@ -17,7 +18,7 @@ const priorityRuleSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-router.get('/', authenticate, authorize('super_admin'), async (_req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.SETTINGS_MANAGE), async (_req, res, next) => {
   try {
     const [settings, rules] = await Promise.all([listSystemSettings(), listPriorityRules()]);
     res.json({ settings, rules });
@@ -26,7 +27,7 @@ router.get('/', authenticate, authorize('super_admin'), async (_req, res, next) 
   }
 });
 
-router.patch('/:key', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.patch('/:key', authenticate, authorize(PERMISSIONS.SETTINGS_MANAGE), async (req, res, next) => {
   try {
     const data = settingSchema.parse(req.body);
     await upsertSystemSetting(req.params.key, data);
@@ -38,7 +39,7 @@ router.patch('/:key', authenticate, authorize('super_admin'), async (req, res, n
   }
 });
 
-router.patch('/priority-rules/:id', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.patch('/priority-rules/:id', authenticate, authorize(PERMISSIONS.SETTINGS_MANAGE), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = priorityRuleSchema.parse(req.body);

@@ -1,4 +1,14 @@
 import { SITE_URL } from './config/site.js';
+import {
+  cachedPayload,
+  canQueueOfflineWrite,
+  enqueueOfflineWrite,
+  flushOfflineQueue,
+  isBrowserOnline,
+  networkError,
+  optimisticOfflineResponse,
+  writeCache,
+} from './lib/offline.js';
 
 function resolveApiBase() {
   const configured = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
@@ -7,7 +17,6 @@ function resolveApiBase() {
     return configured || '/api';
   }
 
-  // Same-origin on Vercel (api/ serverless) or a full remote API URL.
   if (!configured || configured === '/api' || configured.startsWith('http://') || configured.startsWith('https://')) {
     return configured || '/api';
   }
@@ -166,7 +175,11 @@ export function clearSession() {
   localStorage.removeItem('carelink.session');
 }
 
-export async function api(path, options = {}) {
+function cacheableGet(path) {
+  return !path.startsWith('/auth/');
+}
+
+async function fetchApi(path, options = {}) {
   const session = getStoredSession();
   const method = (options.method || 'GET').toUpperCase();
   const isMutation = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
@@ -272,7 +285,68 @@ if (typeof window !== 'undefined') {
   }
 }
 
+export async function api(path, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const online = isBrowserOnline();
+
+  if (method === 'GET') {
+    try {
+      if (!online) {
+        const cached = cachedPayload(path);
+        if (cached) return { ...cached, _offline: true, _fromCache: true };
+        throw new Error('You are offline and this record is not saved on this device yet.');
+      }
+      const data = await fetchApi(path, options);
+      if (cacheableGet(path)) writeCache(path, data);
+      return data;
+    } catch (error) {
+      const cached = cachedPayload(path);
+      if (cached && (networkError(error) || !online)) {
+        return { ...cached, _offline: true, _fromCache: true };
+      }
+      throw error;
+    }
+  }
+
+  if (!online || !isBrowserOnline()) {
+    if (!canQueueOfflineWrite(method, path)) {
+      throw new Error('This action needs an internet connection.');
+    }
+    const parsedBody = options.body ? JSON.parse(options.body) : {};
+    const entry = enqueueOfflineWrite({ method, path, body: parsedBody });
+    return optimisticOfflineResponse(entry);
+  }
+
+  try {
+    const data = await fetchApi(path, options);
+    return data;
+  } catch (error) {
+    if (networkError(error) && canQueueOfflineWrite(method, path)) {
+      const parsedBody = options.body ? JSON.parse(options.body) : {};
+      const entry = enqueueOfflineWrite({ method, path, body: parsedBody });
+      return optimisticOfflineResponse(entry);
+    }
+    throw error;
+  }
+}
+
+export async function flushOfflineNow() {
+  if (!isBrowserOnline()) return { flushed: 0, remaining: pendingHint() };
+  return flushOfflineQueue((path, options) => fetchApi(path, options));
+}
+
+function pendingHint() {
+  try {
+    return JSON.parse(localStorage.getItem('carelink.offline.queue') || '[]').length;
+  } catch {
+    return 0;
+  }
+}
+
 export async function downloadCsv(path) {
+  if (!isBrowserOnline()) {
+    throw new Error('Exports need an internet connection.');
+  }
   const session = getStoredSession();
   const response = await fetch(`${API_BASE}${path}`, {
     headers: session?.token ? { Authorization: `Bearer ${session.token}` } : {},

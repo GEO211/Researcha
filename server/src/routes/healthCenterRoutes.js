@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { createHealthCenter, getHealthCenter, listHealthCenters, updateHealthCenter } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
+import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ const healthCenterSchema = z.object({
   barangay_name: z.string().optional().nullable(),
 });
 
-router.get('/', authenticate, async (_req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.CENTERS_VIEW, PERMISSIONS.CENTERS_MANAGE), async (_req, res, next) => {
   try {
     const healthCenters = await listHealthCenters();
     res.json({ healthCenters });
@@ -24,7 +25,7 @@ router.get('/', authenticate, async (_req, res, next) => {
   }
 });
 
-router.post('/', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.post('/', authenticate, authorize(PERMISSIONS.CENTERS_MANAGE), async (req, res, next) => {
   try {
     const data = healthCenterSchema.parse(req.body);
     const created = await createHealthCenter(data);
@@ -36,7 +37,7 @@ router.post('/', authenticate, authorize('super_admin'), async (req, res, next) 
   }
 });
 
-router.patch('/:id', authenticate, authorize('super_admin'), async (req, res, next) => {
+router.patch('/:id', authenticate, authorize(PERMISSIONS.CENTERS_MANAGE), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = healthCenterSchema.partial().parse(req.body);
