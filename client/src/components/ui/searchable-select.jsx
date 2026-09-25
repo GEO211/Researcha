@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,9 +30,11 @@ export function SearchableSelect({
 }) {
   const listId = useId();
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
   const searchRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, width: 0, maxHeight: 256 });
 
   const selected = useMemo(
     () => options.find((option) => String(option.value) === String(value)),
@@ -49,11 +52,45 @@ export function SearchableSelect({
     });
   }, [options, query]);
 
+  function updateMenuPosition() {
+    const trigger = rootRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const gap = 8;
+    const viewportPad = 12;
+    const spaceBelow = window.innerHeight - rect.bottom - viewportPad;
+    const spaceAbove = rect.top - viewportPad;
+    const preferred = 288;
+    const openUp = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(140, Math.min(preferred, openUp ? spaceAbove - gap : spaceBelow - gap));
+    setMenuStyle({
+      top: openUp ? rect.top - gap : rect.bottom + gap,
+      left: Math.min(rect.left, window.innerWidth - rect.width - viewportPad),
+      width: rect.width,
+      maxHeight,
+      openUp,
+    });
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    updateMenuPosition();
+    function handleReposition() {
+      updateMenuPosition();
+    }
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [open, filtered.length]);
+
   useEffect(() => {
     if (!open) return undefined;
 
     function handlePointerDown(event) {
-      if (rootRef.current?.contains(event.target)) return;
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return;
       setOpen(false);
       setQuery('');
     }
@@ -87,6 +124,78 @@ export function SearchableSelect({
     onChange?.('');
     setQuery('');
   }
+
+  const menu = open ? createPortal(
+    <div
+      ref={menuRef}
+      style={{
+        position: 'fixed',
+        top: menuStyle.openUp ? undefined : menuStyle.top,
+        bottom: menuStyle.openUp ? window.innerHeight - menuStyle.top : undefined,
+        left: menuStyle.left,
+        width: menuStyle.width,
+        maxHeight: menuStyle.maxHeight,
+        zIndex: 80,
+      }}
+      className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-xl shadow-slate-900/15 ring-1 ring-slate-900/5"
+    >
+      <div className="shrink-0 border-b border-slate-100 bg-slate-50 p-2.5">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+          />
+        </div>
+        <p className="mt-2 px-1 text-[11px] text-slate-500">
+          {filtered.length} of {options.length} shown
+        </p>
+      </div>
+
+      <ul
+        id={listId}
+        role="listbox"
+        className="min-h-0 flex-1 overflow-y-auto bg-white p-1.5"
+      >
+        {filtered.length === 0 ? (
+          <li className="px-3 py-8 text-center text-sm text-slate-500">{emptyMessage}</li>
+        ) : (
+          filtered.map((option) => {
+            const isSelected = String(option.value) === String(value);
+            return (
+              <li key={String(option.value)} role="option" aria-selected={isSelected}>
+                <button
+                  type="button"
+                  onClick={() => selectOption(option.value)}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition',
+                    isSelected
+                      ? 'bg-cyan-50 text-cyan-950 ring-1 ring-cyan-200'
+                      : 'bg-white text-slate-800 hover:bg-slate-50',
+                  )}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{option.label}</span>
+                    {option.hint ? (
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">{option.hint}</span>
+                    ) : null}
+                  </span>
+                  {isSelected ? (
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" aria-hidden />
+                  ) : null}
+                </button>
+              </li>
+            );
+          })
+        )}
+      </ul>
+    </div>,
+    document.body,
+  ) : null;
 
   return (
     <div ref={rootRef} className={cn('relative', className)}>
@@ -151,70 +260,7 @@ export function SearchableSelect({
           <ChevronDown className={cn('h-4 w-4 transition', open && 'rotate-180 text-cyan-600')} />
         </button>
       </div>
-
-      {open ? (
-        <div
-          className={cn(
-            'absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200/90 bg-white',
-            'shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5',
-          )}
-        >
-          <div className="border-b border-slate-100 bg-slate-50/80 p-2.5">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
-              />
-            </div>
-            <p className="mt-2 px-1 text-[11px] text-slate-500">
-              {filtered.length} of {options.length} shown
-            </p>
-          </div>
-
-          <ul
-            id={listId}
-            role="listbox"
-            className="max-h-64 overflow-y-auto p-1.5"
-          >
-            {filtered.length === 0 ? (
-              <li className="px-3 py-8 text-center text-sm text-slate-500">{emptyMessage}</li>
-            ) : (
-              filtered.map((option) => {
-                const isSelected = String(option.value) === String(value);
-                return (
-                  <li key={option.value} role="option" aria-selected={isSelected}>
-                    <button
-                      type="button"
-                      onClick={() => selectOption(option.value)}
-                      className={cn(
-                        'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition',
-                        isSelected
-                          ? 'bg-cyan-50 text-cyan-950 ring-1 ring-cyan-200'
-                          : 'text-slate-800 hover:bg-slate-50',
-                      )}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{option.label}</span>
-                        {option.hint ? (
-                          <span className="mt-0.5 block truncate text-xs text-slate-500">{option.hint}</span>
-                        ) : null}
-                      </span>
-                      {isSelected ? (
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-cyan-700" aria-hidden />
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 }

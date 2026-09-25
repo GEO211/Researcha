@@ -142,7 +142,7 @@ export function FormActions({ children, className }) {
 
 export function FilterPanel({ title = 'Search & filter', description, children, footer }) {
   return (
-    <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/80">
+    <section className="mb-6 overflow-visible rounded-2xl border border-slate-200/80 bg-slate-50/80">
       <div className="border-b border-slate-200/60 bg-white/70 px-4 py-3">
         <p className="text-sm font-semibold text-slate-800">{title}</p>
         {description ? <p className="mt-0.5 text-xs text-slate-500">{description}</p> : null}

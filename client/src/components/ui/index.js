@@ -48,6 +48,7 @@ export {
   TableBody,
 } from './page-motion';
 export { CinematicFooter } from './motion-footer';
+export { SoftwareUsed } from './software-used';
 export { ConfirmProvider, useConfirm } from './confirm-modal';
 export {
   MotionReveal,

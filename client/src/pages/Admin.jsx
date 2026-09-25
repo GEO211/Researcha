@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { ClipboardList, Mail, Settings, Users } from 'lucide-react';
+import { ClipboardList, Settings, Users } from 'lucide-react';
 import { api } from '../api';
 import {
-  AnimatedGrid,
-  AnimatedGridItem,
   Card,
   Field,
   PageBlock,
@@ -11,24 +9,13 @@ import {
   PrimaryButton,
   SelectInput,
   SimpleTable,
-  TabPanel,
   TextInput,
   useConfirm,
 } from '../components/ui';
-import { classNames, formatDateTime, roleLabel } from '../components/helpers';
+import { formatDateTime, roleLabel } from '../components/helpers';
 import { KORONADAL_BARANGAYS, barangayAddressLabel, barangayHealthCenterName } from '../data/koronadalBarangays';
 
-export default function Admin({ users, healthCenters, settingsData, smsLogs, emailLogs, auditLogs, onRefresh }) {
-  const [active, setActive] = useState('users');
-  const categories = [
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'centers', label: 'Health Centers', icon: Settings },
-    { id: 'settings', label: 'System Settings', icon: Settings },
-    { id: 'sms', label: 'SMS Logs', icon: ClipboardList },
-    { id: 'email', label: 'Email Logs', icon: Mail },
-    { id: 'audit', label: 'Audit Logs', icon: ClipboardList },
-  ];
-
+export default function Admin({ section = 'users', users, healthCenters, settingsData, smsLogs, emailLogs, auditLogs, onRefresh }) {
   const auditRows = (auditLogs || []).map((log) => ({
     ...log,
     actor_name: log.user_name || 'System',
@@ -39,40 +26,12 @@ export default function Admin({ users, healthCenters, settingsData, smsLogs, ema
   return (
     <PageStack>
       <PageBlock>
-        <section>
-          <AnimatedGrid className="grid gap-3 md:grid-cols-6">
-            {categories.map((category) => {
-              const Icon = category.icon;
-              const isActive = active === category.id;
-              return (
-                <AnimatedGridItem key={category.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActive(category.id)}
-                    className={classNames(
-                      'w-full rounded-2xl border p-4 text-left transition',
-                      isActive ? 'border-cyan-200 bg-cyan-50 text-cyan-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
-                    )}
-                  >
-                    <Icon className="mb-2 h-5 w-5" />
-                    <span className="font-semibold">{category.label}</span>
-                  </button>
-                </AnimatedGridItem>
-              );
-            })}
-          </AnimatedGrid>
-        </section>
-      </PageBlock>
-
-      <PageBlock>
-        <TabPanel panelKey={active}>
-          {active === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
-          {active === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} users={users} onRefresh={onRefresh} /> : null}
-          {active === 'settings' ? <SystemSettings settingsData={settingsData} onRefresh={onRefresh} /> : null}
-          {active === 'sms' ? <LogsPanel title="SMS Logs" rows={smsLogs} columns={['recipient_number', 'message', 'status', 'trigger_type', 'created_at']} /> : null}
-          {active === 'email' ? <LogsPanel title="Email Logs" rows={emailLogs} columns={['recipient_email', 'subject', 'status', 'trigger_type', 'created_at']} /> : null}
-          {active === 'audit' ? <LogsPanel title="Audit Logs" rows={auditRows} columns={['actor_name', 'action', 'entity_type', 'entity_id', 'created_at']} /> : null}
-        </TabPanel>
+        {section === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
+        {section === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} users={users} onRefresh={onRefresh} /> : null}
+        {section === 'settings' ? <SystemSettings settingsData={settingsData} onRefresh={onRefresh} /> : null}
+        {section === 'sms' ? <LogsPanel title="SMS Logs" rows={smsLogs} columns={['recipient_number', 'message', 'status', 'trigger_type', 'created_at']} /> : null}
+        {section === 'email' ? <LogsPanel title="Email Logs" rows={emailLogs} columns={['recipient_email', 'subject', 'status', 'trigger_type', 'created_at']} /> : null}
+        {section === 'audit' ? <LogsPanel title="Audit Logs" rows={auditRows} columns={['actor_name', 'action', 'entity_type', 'entity_id', 'created_at']} /> : null}
       </PageBlock>
     </PageStack>
   );

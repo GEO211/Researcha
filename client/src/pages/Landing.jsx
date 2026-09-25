@@ -29,6 +29,7 @@ import {
   CountUp,
   MotionStagger,
   PrimaryButton,
+  SoftwareUsed,
   StatusBadge,
   WebDevelopers,
   popUp,

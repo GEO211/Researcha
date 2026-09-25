@@ -15,7 +15,6 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import smsRoutes from './routes/smsRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
 import auditRoutes from './routes/auditRoutes.js';
-import evaluationRoutes from './routes/evaluationRoutes.js';
 import emailRoutes from './routes/emailRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
@@ -85,7 +84,6 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/sms-logs', smsRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/email-logs', emailRoutes);
-app.use('/api/evaluations', evaluationRoutes);
 app.use('/api/public', publicRoutes);
 
 app.use(notFound);

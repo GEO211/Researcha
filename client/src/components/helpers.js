@@ -1,4 +1,4 @@
-import { Activity, Bell, ClipboardList, HeartPulse, LayoutDashboard, Settings, Users } from 'lucide-react';
+import { Activity, Bell, Building2, ClipboardList, HeartPulse, LayoutDashboard, Mail, Settings, Users } from 'lucide-react';
 
 export function classNames(...items) {
   return items.filter(Boolean).join(' ');
@@ -28,9 +28,14 @@ export function tabLabel(tabId) {
     queue: 'Queue',
     analytics: 'Analytics',
     tracking: 'Tracking',
-    evaluation: 'Evaluation',
     profile: 'Profile',
     admin: 'Admin',
+    'admin-users': 'Users',
+    'admin-centers': 'Health Centers',
+    'admin-settings': 'System Settings',
+    'admin-sms': 'SMS Logs',
+    'admin-email': 'Email Logs',
+    'admin-audit': 'Audit Logs',
   }[tabId] || tabId;
 }
 
@@ -49,8 +54,13 @@ export function tabIcon(tabId) {
     queue: Bell,
     analytics: Activity,
     tracking: HeartPulse,
-    evaluation: ClipboardList,
     profile: Users,
     admin: Settings,
+    'admin-users': Users,
+    'admin-centers': Building2,
+    'admin-settings': Settings,
+    'admin-sms': ClipboardList,
+    'admin-email': Mail,
+    'admin-audit': ClipboardList,
   }[tabId] || Activity;
 }

@@ -10,7 +10,7 @@ const team = [
     icon: Terminal,
     itemIcon: Code2,
     contributions: [
-      'Full-stack development (Node.js, React, MySQL)',
+      'Full-stack development (Node.js, React, PostgreSQL / Supabase)',
       'Referral, queue, patient, and admin modules',
       'API, authentication, notifications, and UI implementation',
     ],

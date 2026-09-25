@@ -30,7 +30,6 @@ const TABLES = {
   emailLogs: 'email_logs',
   auditLogs: 'audit_logs',
   performanceMetrics: 'performance_metrics',
-  evaluationResponses: 'evaluation_responses',
 };
 
 function nowIso() {
@@ -1063,65 +1062,6 @@ export async function createPerformanceMetric(data) {
   return row.id;
 }
 
-export async function createEvaluationResponse(data) {
-  const row = await insertRow(TABLES.evaluationResponses, { ...data, created_at: nowIso() });
-  return row.id;
-}
-
-export async function listEvaluationSummary() {
-  const rows = await select(`SELECT * FROM ${TABLES.evaluationResponses}`);
-  const map = new Map();
-
-  for (const row of rows) {
-    const key = `${row.survey_type}:${row.respondent_role}`;
-    const entry = map.get(key) || {
-      survey_type: row.survey_type,
-      respondent_role: row.respondent_role,
-      count: 0,
-      total: 0,
-    };
-    entry.count += 1;
-    entry.total += row.score;
-    map.set(key, entry);
-  }
-
-  return [...map.values()]
-    .map((entry) => ({
-      survey_type: entry.survey_type,
-      respondent_role: entry.respondent_role,
-      count: entry.count,
-      average_score: Math.round((entry.total / entry.count) * 100) / 100,
-    }))
-    .sort((a, b) => `${a.survey_type}${a.respondent_role}`.localeCompare(`${b.survey_type}${b.respondent_role}`));
-}
-
-export async function listRecentEvaluations(limit = 100) {
-  return (await select(`SELECT * FROM ${TABLES.evaluationResponses}`))
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, limit)
-    .map(({ id, survey_type, respondent_role, respondent_name, tracking_code, rating, score, comments, created_at }) => ({
-      id,
-      survey_type,
-      respondent_role,
-      respondent_name,
-      tracking_code,
-      rating: rating || score,
-      score,
-      comments,
-      created_at,
-    }));
-}
-
-export async function listPatientSatisfactionSummary() {
-  const rows = await select(
-    `SELECT * FROM ${TABLES.evaluationResponses} WHERE survey_type = 'patient_satisfaction' OR rating IS NOT NULL`,
-  );
-  if (!rows.length) return { total: 0, average_rating: 0 };
-  const total = rows.length;
-  const average_rating = Math.round((rows.reduce((sum, r) => sum + (r.rating || r.score), 0) / total) * 10) / 10;
-  return { total, average_rating };
-}
-
 export async function getDashboardSummary(user) {
   const roleFilter = user.role === 'barangay_staff' ? user.health_center_id : null;
 
@@ -1327,12 +1267,11 @@ export async function getDashboardSummary(user) {
 }
 
 export async function getAnalyticsSummary() {
-  const [referrals, queue, smsLogs, perf, evaluations, users] = await Promise.all([
+  const [referrals, queue, smsLogs, perf, users] = await Promise.all([
     select(`SELECT * FROM ${TABLES.referrals}`),
     select(`SELECT * FROM ${TABLES.queueEntries}`),
     select(`SELECT * FROM ${TABLES.smsLogs}`),
     select(`SELECT * FROM ${TABLES.performanceMetrics}`),
-    select(`SELECT * FROM ${TABLES.evaluationResponses}`),
     getUserMap(),
   ]);
   const centerMap = await getHealthCenterMap();
@@ -1400,23 +1339,6 @@ export async function getAnalyticsSummary() {
     ? [{ label: 'abandonment_rate', rate_percent: Math.round((abandoned / totalAssigned) * 1000) / 10 }]
     : [{ label: 'abandonment_rate', rate_percent: 0 }];
 
-  const satisfactionTrends = evaluations
-    .filter((e) => e.survey_type === 'patient_satisfaction' || e.rating)
-    .reduce((acc, e) => {
-      const day = String(e.created_at).slice(0, 10);
-      acc[day] = acc[day] || { total: 0, count: 0 };
-      acc[day].total += e.rating || e.score;
-      acc[day].count += 1;
-      return acc;
-    }, {});
-  const patientSatisfactionTrends = Object.entries(satisfactionTrends)
-    .map(([date, entry]) => ({
-      date,
-      average_rating: Math.round((entry.total / entry.count) * 10) / 10,
-      responses: entry.count,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
   const dailyVolumes = referrals.reduce((acc, r) => {
     const day = String(r.created_at).slice(0, 10);
     acc[day] = (acc[day] || 0) + 1;
@@ -1470,7 +1392,6 @@ export async function getAnalyticsSummary() {
     peakHours,
     staffPerformance,
     queueAbandonmentRate,
-    patientSatisfactionTrends,
     volumeForecast,
     performance,
   };

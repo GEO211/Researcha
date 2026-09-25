@@ -1,0 +1,15 @@
+Software Used
+=============
+
+Cursor IDE
+PostgreSQL (Supabase)
+Google Chrome
+Vercel
+Tailwind CSS
+Node.js
+Express.js
+React
+Vite
+Framer Motion & GSAP
+Python (FastAPI)
+UniSMS

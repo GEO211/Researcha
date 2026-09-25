@@ -67,7 +67,6 @@ const exports = [
   ['/analytics/export/patients.csv', 'Patients CSV'],
   ['/analytics/export/queue.csv', 'Queue CSV'],
   ['/analytics/export/sms.csv', 'SMS CSV'],
-  ['/evaluations/export.csv', 'Evaluations CSV'],
 ];
 
 export default function Analytics({ analytics }) {
@@ -151,10 +150,6 @@ function ClinicReportsPanel({ analytics }) {
       count: Number(row.count || 0),
     }));
   const staffRows = normalizeRows(analytics.staffPerformance, 'staff_name', 'reviewed').slice(0, 8);
-  const satisfactionRows = (analytics.patientSatisfactionTrends || []).map((row) => ({
-    label: String(row.date).slice(5),
-    count: Number(row.average_rating || 0),
-  }));
   const abandonment = Number(analytics.queueAbandonmentRate?.[0]?.rate_percent || 0);
   const forecast = analytics.volumeForecast?.[0] || {};
   const completion = analytics.completion || {};
@@ -253,19 +248,7 @@ function ClinicReportsPanel({ analytics }) {
       </MotionReveal>
 
       <MotionReveal variant={fadeUp} delay={0.1}>
-        <MotionStagger className="grid gap-5 xl:grid-cols-2" stagger={0.1}>
-          <MotionItem variant={popUp}>
-            <VerticalBarCard
-              title="Patient satisfaction trend"
-              rows={satisfactionRows.slice(-10)}
-              icon={Sparkles}
-              valueSuffix=""
-            />
-          </MotionItem>
-          <MotionItem variant={popUp}>
-            <AbandonmentCard rate={abandonment} />
-          </MotionItem>
-        </MotionStagger>
+        <AbandonmentCard rate={abandonment} />
       </MotionReveal>
 
       {(analytics.performance || []).length ? (

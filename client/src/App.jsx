@@ -6,7 +6,6 @@ import { LoadingOverlay } from './components/ui';
 import Admin from './pages/Admin';
 import Analytics from './pages/Analytics';
 import Dashboard from './pages/Dashboard';
-import Evaluation from './pages/Evaluation';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import PublicQueueBoard from './pages/PublicQueueBoard';
@@ -22,7 +21,10 @@ function App() {
   const pathTrackingCode = publicPath.startsWith('/track/')
     ? decodeURIComponent(publicPath.replace('/track/', '').split('/')[0])
     : '';
-  const [activeTab, setActiveTab] = useState(pathTrackingCode ? 'tracking' : 'dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    if (getStoredSession()?.user?.role === 'super_admin') return 'dashboard';
+    return pathTrackingCode ? 'tracking' : 'dashboard';
+  });
   const [summary, setSummary] = useState({});
   const [patients, setPatients] = useState([]);
   const [referrals, setReferrals] = useState([]);
@@ -33,7 +35,6 @@ function App() {
   const [settingsData, setSettingsData] = useState({ settings: [], rules: [] });
   const [smsLogs, setSmsLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [evaluationData, setEvaluationData] = useState({ summary: [], responses: [] });
   const [referralFilters, setReferralFilters] = useState({ q: '', status: '', priority_level: '' });
   const [emailLogs, setEmailLogs] = useState([]);
   const [patientFilters, setPatientFilters] = useState({ q: '', city: '', province: '', contact_number: '', email: '', health_center_id: '' });
@@ -45,17 +46,29 @@ function App() {
 
   const user = session?.user;
   const canManage = user?.role === 'super_admin';
-  const canReview = ['super_admin', 'city_staff'].includes(user?.role);
-  const canSubmit = ['super_admin', 'barangay_staff'].includes(user?.role);
-  const canUseQueue = canReview || user?.role === 'barangay_staff';
+  const canReview = user?.role === 'city_staff';
+  const canSubmit = user?.role === 'barangay_staff';
+  const canUseQueue = canReview || canSubmit;
+  const canTrack = !canManage;
 
   const tabs = useMemo(() => {
+    if (canManage) {
+      return [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'admin-users', label: 'Users' },
+        { id: 'admin-centers', label: 'Health Centers' },
+        { id: 'admin-settings', label: 'System Settings' },
+        { id: 'admin-sms', label: 'SMS Logs' },
+        { id: 'admin-email', label: 'Email Logs' },
+        { id: 'admin-audit', label: 'Audit Logs' },
+      ];
+    }
+
     const items = [{ id: 'dashboard', label: 'Dashboard' }];
     if (canSubmit) items.push({ id: 'patients', label: 'Patients' }, { id: 'referrals', label: 'Referrals' });
     if (canUseQueue) items.push({ id: 'queue', label: 'Queue' });
     if (canReview) items.push({ id: 'analytics', label: 'Analytics' });
-    items.push({ id: 'tracking', label: 'Tracking' }, { id: 'evaluation', label: 'Evaluation' }, { id: 'profile', label: 'Profile' });
-    if (canManage) items.push({ id: 'admin', label: 'Admin' });
+    items.push({ id: 'tracking', label: 'Tracking' }, { id: 'profile', label: 'Profile' });
     return items;
   }, [canManage, canReview, canSubmit, canUseQueue]);
 
@@ -72,38 +85,59 @@ function App() {
         Object.fromEntries(Object.entries(patientFilters).filter(([, value]) => value)),
       ).toString();
 
-      // Load core screens first so one slow endpoint cannot blank the whole app.
-      const core = await Promise.allSettled([
-        api('/dashboard/summary'),
-        api(`/patients${patientQuery ? `?${patientQuery}` : ''}`),
-        api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`),
-        api('/health-centers'),
-      ]);
+      // Super Admin only needs dashboard + admin data.
+      const core = canManage
+        ? await Promise.allSettled([
+            api('/dashboard/summary'),
+            api('/health-centers'),
+          ])
+        : await Promise.allSettled([
+            api('/dashboard/summary'),
+            api(`/patients${patientQuery ? `?${patientQuery}` : ''}`),
+            api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`),
+            api('/health-centers'),
+          ]);
 
-      const [summaryData, patientData, referralData, centerData] = core.map((result, index) => {
-        if (result.status === 'fulfilled') return result.value;
-        const labels = ['dashboard', 'patients', 'referrals', 'health centers'];
-        console.error(`[CareLink] Failed to load ${labels[index]}:`, result.reason);
-        return null;
-      });
+      if (canManage) {
+        const [summaryData, centerData] = core.map((result, index) => {
+          if (result.status === 'fulfilled') return result.value;
+          const labels = ['dashboard', 'health centers'];
+          console.error(`[CareLink] Failed to load ${labels[index]}:`, result.reason);
+          return null;
+        });
+        if (summaryData) setSummary(summaryData);
+        setHealthCenters(centerData?.healthCenters || []);
+        const failedCore = core.findIndex((result) => result.status === 'rejected');
+        if (failedCore !== -1) {
+          const labels = ['Dashboard', 'Health centers'];
+          setError(core[failedCore].reason?.message || `${labels[failedCore]} failed to load.`);
+        }
+      } else {
+        const [summaryData, patientData, referralData, centerData] = core.map((result, index) => {
+          if (result.status === 'fulfilled') return result.value;
+          const labels = ['dashboard', 'patients', 'referrals', 'health centers'];
+          console.error(`[CareLink] Failed to load ${labels[index]}:`, result.reason);
+          return null;
+        });
 
-      if (summaryData) setSummary(summaryData);
-      setPatients(patientData?.patients || []);
-      setReferrals(referralData?.referrals || []);
-      setHealthCenters(centerData?.healthCenters || []);
+        if (summaryData) setSummary(summaryData);
+        setPatients(patientData?.patients || []);
+        setReferrals(referralData?.referrals || []);
+        setHealthCenters(centerData?.healthCenters || []);
 
-      const failedCore = core.findIndex((result) => result.status === 'rejected');
-      if (failedCore !== -1) {
-        const labels = ['Dashboard', 'Patients', 'Referrals', 'Health centers'];
-        setError(core[failedCore].reason?.message || `${labels[failedCore]} failed to load.`);
+        const failedCore = core.findIndex((result) => result.status === 'rejected');
+        if (failedCore !== -1) {
+          const labels = ['Dashboard', 'Patients', 'Referrals', 'Health centers'];
+          setError(core[failedCore].reason?.message || `${labels[failedCore]} failed to load.`);
+        }
       }
 
       const reviewRequests = canUseQueue
         ? [
             api('/queue'),
-            ...(canReview ? [api('/analytics'), api('/evaluations')] : [Promise.resolve({}), Promise.resolve({ summary: [], responses: [] })]),
+            ...(canReview ? [api('/analytics')] : [Promise.resolve({})]),
           ]
-        : [Promise.resolve({ queue: [] }), Promise.resolve({}), Promise.resolve({ summary: [], responses: [] })];
+        : [Promise.resolve({ queue: [] }), Promise.resolve({})];
       const adminRequests = canManage
         ? [api('/users'), api('/settings'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
         : [Promise.resolve({ users: [] }), Promise.resolve({ settings: [], rules: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
@@ -112,7 +146,6 @@ function App() {
       const [
         queueData,
         analyticsData,
-        evaluationResponse,
         userData,
         settingsResponse,
         smsLogData,
@@ -127,7 +160,6 @@ function App() {
       setSmsLogs(smsLogData?.logs || []);
       setAuditLogs(auditLogData?.logs || []);
       setEmailLogs(emailLogData?.logs || []);
-      setEvaluationData(evaluationResponse || { summary: [], responses: [], patientSummary: {} });
       setDataReady(true);
     } catch (err) {
       setError(err.message);
@@ -165,6 +197,11 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [loadData]);
+
+  useEffect(() => {
+    const allowed = new Set(tabs.map((tab) => tab.id));
+    if (!allowed.has(activeTab)) setActiveTab('dashboard');
+  }, [activeTab, tabs]);
 
   useEffect(() => {
     function handleSessionExpired() {
@@ -350,12 +387,12 @@ function App() {
           ) : null}
           {dataReady && activeTab === 'queue' && canUseQueue ? <Queue key="queue" user={user} onRefresh={loadData} /> : null}
           {dataReady && activeTab === 'analytics' && canReview ? <Analytics key="analytics" analytics={analytics} /> : null}
-          {dataReady && activeTab === 'tracking' ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
-          {dataReady && activeTab === 'evaluation' ? <Evaluation key="evaluation" evaluationData={evaluationData} canReview={canReview} session={session} onRefresh={loadData} /> : null}
-          {dataReady && activeTab === 'profile' ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
-          {dataReady && activeTab === 'admin' && canManage ? (
+          {dataReady && activeTab === 'tracking' && canTrack ? <Tracking key="tracking" initialCode={pathTrackingCode} /> : null}
+          {dataReady && activeTab === 'profile' && !canManage ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
+          {dataReady && activeTab.startsWith('admin-') && canManage ? (
             <Admin
-              key="admin"
+              key={activeTab}
+              section={activeTab.replace('admin-', '')}
               users={users}
               healthCenters={healthCenters}
               settingsData={settingsData}
