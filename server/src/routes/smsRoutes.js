@@ -15,7 +15,7 @@ const manualSmsSchema = z.object({
 
 router.get('/', authenticate, authorize(PERMISSIONS.SMS_VIEW), async (_req, res, next) => {
   try {
-    const logs = await listSmsLogs();
+    const logs = await listSmsLogs(0);
     res.json({ logs });
   } catch (error) {
     next(error);

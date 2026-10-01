@@ -328,18 +328,19 @@ export async function sendSms({ patientId, referralId, queueEntryId = null, reci
   const secretKey = process.env.UNISMS_SECRET_KEY;
   const senderId = (process.env.UNISMS_SENDER_ID || 'UniSMS').trim();
   const recipient = formatPhilippineNumber(patientPhone);
-  const content = normalizeSmsContent(injectPatientName(message, displayName));
+  const fullMessage = String(injectPatientName(message, displayName) || '').trim();
+  const content = normalizeSmsContent(fullMessage);
   const resolvedFallback = fallbackMessage
     ? normalizeSmsContent(injectPatientName(fallbackMessage, displayName))
     : null;
 
   if (!secretKey) {
-    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: content, triggerType, status: 'pending', errorMessage: 'UniSMS secret key not configured.' });
+    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: fullMessage, triggerType, status: 'pending', errorMessage: 'UniSMS secret key not configured.' });
     return { status: 'pending', reason: 'UniSMS secret key not configured.', recipient: patientPhone };
   }
 
   if (!recipient) {
-    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: content, triggerType, status: 'failed', errorMessage: 'Invalid Philippine mobile number.' });
+    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: fullMessage, triggerType, status: 'failed', errorMessage: 'Invalid Philippine mobile number.' });
     return { status: 'failed', error: 'Invalid Philippine mobile number.', recipient: patientPhone };
   }
 
@@ -359,7 +360,7 @@ export async function sendSms({ patientId, referralId, queueEntryId = null, reci
 
   try {
     const result = await sendAttempt(content);
-    await logSms({ patientId, referralId, queueEntryId, recipientNumber: recipient, message: content, triggerType, status: 'sent' });
+    await logSms({ patientId, referralId, queueEntryId, recipientNumber: recipient, message: fullMessage, triggerType, status: 'sent' });
     return { status: 'sent', referenceId: result.referenceId, recipient: patientPhone };
   } catch (error) {
     const fallback = resolvedFallback
@@ -376,7 +377,7 @@ export async function sendSms({ patientId, referralId, queueEntryId = null, reci
           referralId,
           queueEntryId,
           recipientNumber: recipient,
-          message: fallback,
+          message: fullMessage,
           triggerType,
           status: 'sent',
           errorMessage: 'Sent fallback message because the tracking site text was blocked by the SMS provider.',
@@ -388,12 +389,12 @@ export async function sendSms({ patientId, referralId, queueEntryId = null, reci
           warning: 'Sent fallback message with carelink-bay website instead of www.carelink-bay.vercel.app.',
         };
       } catch (retryError) {
-        await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: fallback, triggerType, status: 'failed', errorMessage: retryError.message });
+        await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: fullMessage, triggerType, status: 'failed', errorMessage: retryError.message });
         return { status: 'failed', error: retryError.message, recipient: patientPhone };
       }
     }
 
-    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: content, triggerType, status: 'failed', errorMessage: error.message });
+    await logSms({ patientId, referralId, queueEntryId, recipientNumber: patientPhone, message: fullMessage, triggerType, status: 'failed', errorMessage: error.message });
     return { status: 'failed', error: error.message, recipient: patientPhone };
   }
 }

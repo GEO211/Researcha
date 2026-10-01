@@ -29,7 +29,7 @@ export default function Admin({ section = 'users', users, healthCenters, setting
         {section === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
         {section === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} users={users} onRefresh={onRefresh} /> : null}
         {section === 'settings' ? <SystemSettings settingsData={settingsData} onRefresh={onRefresh} /> : null}
-        {section === 'sms' ? <LogsPanel title="SMS Logs" rows={smsLogs} columns={['recipient_number', 'message', 'status', 'trigger_type', 'created_at']} /> : null}
+        {section === 'sms' ? <SmsLogsPanel rows={smsLogs} /> : null}
         {section === 'email' ? <LogsPanel title="Email Logs" rows={emailLogs} columns={['recipient_email', 'subject', 'status', 'trigger_type', 'created_at']} /> : null}
         {section === 'audit' ? <LogsPanel title="Audit Logs" rows={auditRows} columns={['actor_name', 'action', 'entity_type', 'entity_id', 'created_at']} /> : null}
       </PageBlock>
@@ -469,6 +469,76 @@ function SystemSettings({ settingsData, onRefresh }) {
         </Card>
       </PageBlock>
     </PageStack>
+  );
+}
+
+function smsWhen(value) {
+  if (!value) return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function smsReason(value) {
+  return {
+    referral_booked: 'Referral booked',
+    referral_transferred: 'Checkup transferred',
+    referral_rescheduled: 'Appointment rescheduled',
+    referral_cancelled: 'Booking canceled',
+    referral_completed: 'Visit completed',
+    approval: 'Referral approved',
+    appointment_reminder: 'Appointment reminder',
+    missed_referral: 'Missed visit',
+    queue_call: 'Queue call',
+    manual: 'Manual message',
+  }[value] || String(value || '—').replaceAll('_', ' ');
+}
+
+function SmsLogsPanel({ rows }) {
+  const logs = rows || [];
+  return (
+    <Card title="SMS Logs" icon={ClipboardList}>
+      <p className="mb-4 text-sm text-slate-500">{logs.length} message{logs.length === 1 ? '' : 's'}</p>
+      {logs.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">No SMS messages yet.</p>
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/90">
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">When</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">To</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">Why</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">Status</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-600">Message</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {logs.map((log) => (
+                  <tr key={log.id} className="align-top hover:bg-slate-50/70">
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{smsWhen(log.sent_at || log.created_at)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{log.recipient_number || '—'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">{smsReason(log.trigger_type)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 capitalize text-slate-700">{log.status || '—'}</td>
+                    <td className="min-w-[280px] px-4 py-3 text-slate-800">
+                      <p className="whitespace-pre-wrap break-words">{log.message || '—'}</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

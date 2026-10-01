@@ -1016,7 +1016,7 @@ export async function listSmsLogs(limit = 100) {
       };
     })
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, limit);
+    .slice(0, limit || undefined);
 }
 
 export async function hasSmsReminder(referralId) {
