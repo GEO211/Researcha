@@ -502,3 +502,15 @@ export function rescheduleMessage({ appointmentAt, trackingCode = null, queueNum
     eventPrefix: `Rescheduled to ${formatSmsDateTime(appointmentAt)}.`,
   }).message;
 }
+
+export function transferMessage({ centerName, trackingCode = null, queueNumber = null, patientName = null } = {}) {
+  const place = String(centerName || 'another health center')
+    .replace(/\s+health center$/i, '')
+    .trim() || 'another health center';
+  return trackerMessageOptions({
+    patientName,
+    queueNumber,
+    trackingCode,
+    eventPrefix: `Checkup transferred to ${place}.`,
+  }).message;
+}

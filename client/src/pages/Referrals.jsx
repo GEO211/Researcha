@@ -1279,18 +1279,21 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
     if (!transferring) return;
     const confirmed = await confirm({
       title: 'Transfer checkup location?',
-      message: 'Move this checkup to another barangay or city health center queue?',
+      message: 'Move this checkup and send the patient another SMS with the new location?',
       confirmLabel: 'Transfer',
     });
     if (!confirmed) return;
 
     setActingId(transferring.id);
     try {
-      await api(`/referrals/${transferring.id}/transfer`, {
+      const result = await api(`/referrals/${transferring.id}/transfer`, {
         method: 'POST',
         body: JSON.stringify({ receiving_health_center_id: Number(transferCenterId) }),
       });
       setTransferring(null);
+      if (result.sms_status && result.sms_status !== 'sent' && result.sms_status !== 'skipped') {
+        setActionError(`Checkup transferred, but the SMS was not sent. ${result.sms_error || ''}`.trim());
+      }
       await onRefresh();
     } catch (err) {
       setActionError(err.message);

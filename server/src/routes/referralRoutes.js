@@ -22,7 +22,7 @@ import { generateDefaultAppointmentAt } from '../lib/supabase/helpers.js';
 import { audit } from '../services/auditService.js';
 import { createQueueNumber, createReferralCode } from '../services/codeService.js';
 import { calculatePriority } from '../services/priorityService.js';
-import { approvalMessage, cancellationMessage, completionThankYouMessage, confirmationMessagePair, missedMessage, rejectionMessage, rescheduleMessage, resolvePatientDisplayName, sendSms } from '../services/smsService.js';
+import { approvalMessage, cancellationMessage, completionThankYouMessage, confirmationMessagePair, missedMessage, rejectionMessage, rescheduleMessage, resolvePatientDisplayName, sendSms, transferMessage } from '../services/smsService.js';
 import { recordMetric, startTimer } from '../services/performanceService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 
@@ -209,15 +209,35 @@ router.post('/:id/transfer', authenticate, authorize(PERMISSIONS.REFERRALS_TRANS
       return res.status(400).json({ message: 'Select an active barangay or city health center.' });
     }
 
+    const sameCenter = Number(referral.receiving_health_center_id) === Number(receivingCenter.id);
     const updated = await transferReferralLocation(id, receivingCenter.id);
+    let smsResult = { status: 'skipped', reason: 'Checkup location did not change.' };
+    if (!sameCenter) {
+      smsResult = await sendSms({
+        patientId: referral.patient_id,
+        referralId: id,
+        queueEntryId: updated?.queue_entry_id || referral.queue_entry_id,
+        triggerType: 'referral_transferred',
+        message: transferMessage({
+          centerName: receivingCenter.name,
+          trackingCode: updated?.referral_code || referral.referral_code || referral.tracking_code,
+          queueNumber: updated?.queue_number || referral.queue_number,
+          patientName: resolvePatientDisplayName(updated || referral),
+        }),
+      });
+    }
+
     await audit(req, 'referral.transferred', 'referral', id, {
       from_center_id: referral.receiving_health_center_id,
       to_center_id: receivingCenter.id,
+      sms_status: smsResult.status,
     });
 
     return res.json({
       ...updated,
       message: `Checkup transferred to ${receivingCenter.name}.`,
+      sms_status: smsResult.status,
+      sms_error: smsResult.error || smsResult.reason || null,
     });
   } catch (error) {
     return next(error);

@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
   queue_entry_id INT REFERENCES queue_entries(id),
   recipient_number VARCHAR(30) NOT NULL,
   message TEXT NOT NULL,
-  trigger_type VARCHAR(40) NOT NULL CHECK (trigger_type IN ('approval', 'appointment_reminder', 'missed_referral', 'queue_call', 'manual', 'referral_completed', 'referral_booked', 'referral_cancelled', 'referral_rescheduled')),
+  trigger_type VARCHAR(40) NOT NULL CHECK (trigger_type IN ('approval', 'appointment_reminder', 'missed_referral', 'queue_call', 'manual', 'referral_completed', 'referral_booked', 'referral_cancelled', 'referral_rescheduled', 'referral_transferred')),
   provider_message_id VARCHAR(100),
   status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
   error_message TEXT,
