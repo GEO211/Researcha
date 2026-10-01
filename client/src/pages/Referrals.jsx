@@ -61,21 +61,18 @@ const initialReferral = {
 const CLINICAL_URGENCY_OPTIONS = [
   { value: 'routine', label: 'Routine' },
   { value: 'urgent', label: 'Urgent' },
-  { value: 'emergency', label: 'Emergency' },
 ];
 
 const REFERRAL_TYPE_OPTIONS = [
   { value: 'routine', label: 'Routine' },
   { value: 'follow_up', label: 'Follow-up' },
   { value: 'specialist_consultation', label: 'Specialist consultation' },
-  { value: 'emergency', label: 'Emergency' },
 ];
 
 const SEVERITY_OPTIONS = [
   { value: 'low', label: 'Low' },
   { value: 'moderate', label: 'Moderate' },
   { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
 ];
 
 const REFERRAL_STATUS_FILTER_OPTIONS = [
