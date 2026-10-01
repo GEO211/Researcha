@@ -205,8 +205,8 @@ router.post('/:id/transfer', authenticate, authorize(PERMISSIONS.REFERRALS_TRANS
     }
 
     const receivingCenter = await getHealthCenter(data.receiving_health_center_id);
-    if (!receivingCenter || receivingCenter.status !== 'active') {
-      return res.status(400).json({ message: 'Select an active barangay or city health center.' });
+    if (!receivingCenter || receivingCenter.status !== 'active' || receivingCenter.type !== 'city') {
+      return res.status(400).json({ message: 'Checkups can only be transferred to the city health center.' });
     }
 
     const sameCenter = Number(referral.receiving_health_center_id) === Number(receivingCenter.id);

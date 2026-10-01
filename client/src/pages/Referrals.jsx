@@ -1269,9 +1269,10 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
   }
 
   function startTransfer(referral) {
+    const cityCenter = healthCenters.find((center) => center.type === 'city' && center.status === 'active');
     setActionError('');
     setTransferring(referral);
-    setTransferCenterId(String(referral.receiving_health_center_id || ''));
+    setTransferCenterId(cityCenter ? String(cityCenter.id) : '');
   }
 
   async function submitTransfer(event) {
@@ -1279,7 +1280,7 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
     if (!transferring) return;
     const confirmed = await confirm({
       title: 'Transfer checkup location?',
-      message: 'Move this checkup and send the patient another SMS with the new location?',
+      message: 'Move this checkup to the city health center and send the patient another SMS?',
       confirmLabel: 'Transfer',
     });
     if (!confirmed) return;
@@ -1336,15 +1337,15 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
             <SearchableSelect
               value={transferCenterId}
               onChange={setTransferCenterId}
-              options={healthCenters.filter((center) => center.status === 'active').map((center) => ({
+              options={healthCenters.filter((center) => center.type === 'city' && center.status === 'active').map((center) => ({
                 value: String(center.id),
                 label: center.name,
-                hint: center.barangay_name ? `Barangay ${center.barangay_name}` : center.type,
-                searchText: [center.name, center.barangay_name, center.address].join(' '),
+                hint: 'City health center',
+                searchText: [center.name, center.address].join(' '),
               }))}
-              placeholder="Select barangay health center"
-              searchPlaceholder="Search barangay…"
-              emptyMessage="No health centers match"
+              placeholder="Select city health center"
+              searchPlaceholder="Search city health center…"
+              emptyMessage="No city health center is available"
               required
             />
           </Field>
