@@ -42,7 +42,7 @@ export function clearSession() {
   localStorage.removeItem('carelink.session');
 }
 
-function cacheableGet(path) {
+function cacheableGet(path) { 
   return !path.startsWith('/auth/');
 }
 
