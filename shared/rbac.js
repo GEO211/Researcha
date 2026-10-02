@@ -41,11 +41,12 @@ const SUPER_ADMIN = [
   P.USERS_MANAGE,
   P.CENTERS_VIEW,
   P.CENTERS_MANAGE,
-  P.SETTINGS_MANAGE,
   P.SMS_VIEW,
   P.EMAIL_VIEW,
   P.AUDIT_VIEW,
   P.ADMIN_LOGS,
+  P.PROFILE_VIEW,
+  P.PROFILE_UPDATE,
   P.OFFLINE_SYNC,
 ];
 
@@ -129,13 +130,12 @@ export const NAV_ITEMS = [
   { id: 'queue', label: 'Queue', permission: P.QUEUE_VIEW },
   { id: 'analytics', label: 'Analytics', permission: P.ANALYTICS_VIEW },
   { id: 'tracking', label: 'Tracking', anyOf: [P.TRACKING_VIEW, P.TRACKING_OWN] },
-  { id: 'profile', label: 'Profile', permission: P.PROFILE_VIEW },
   { id: 'admin-users', label: 'Users', permission: P.USERS_MANAGE },
   { id: 'admin-centers', label: 'Health Centers', permission: P.CENTERS_MANAGE },
-  { id: 'admin-settings', label: 'System Settings', permission: P.SETTINGS_MANAGE },
   { id: 'admin-sms', label: 'SMS Logs', permission: P.ADMIN_LOGS },
   { id: 'admin-email', label: 'Email Logs', permission: P.ADMIN_LOGS },
   { id: 'admin-audit', label: 'Audit Logs', permission: P.AUDIT_VIEW },
+  { id: 'profile', label: 'Settings', permission: P.PROFILE_VIEW },
 ];
 
 export function navigationForRole(role) {

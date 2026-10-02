@@ -1,3 +1,4 @@
+import { phMobileDigits } from '../patientRules.js';
 import { query, queryOne, withTransaction } from './query.js';
 import {
   EXPIRABLE_REFERRAL_STATUSES,
@@ -175,6 +176,36 @@ function enrichReferralRecord(referral, { patientMap, centerMap, queueMap } = {}
   };
 }
 
+/** Close waiting and called visits once their queue day has ended in Asia/Manila. */
+export async function expirePastQueueEntries() {
+  const today = todayDateString();
+  const ts = nowIso();
+  await query(
+    `UPDATE ${TABLES.referrals} AS referral
+     SET status = 'expired', updated_at = $1
+     FROM ${TABLES.queueEntries} AS queue
+     WHERE queue.referral_id = referral.id
+       AND queue.queue_date < $2::date
+       AND referral.status = 'queued'`,
+    [ts, today],
+  );
+  await query(
+    `UPDATE ${TABLES.queueEntries}
+     SET queue_status = 'expired', updated_at = $1
+     WHERE queue_date < $2::date
+       AND queue_status IN ('waiting', 'called')`,
+    [ts, today],
+  );
+}
+
+function isOpenQueueEntry(entry) {
+  const date = queueDateKey(entry.queue_date);
+  return entry.referral_status === 'queued'
+    && ['waiting', 'called'].includes(entry.queue_status)
+    && Boolean(date)
+    && !isQueueDateExpired(date);
+}
+
 function applyReferralExpirySync(referral, queue) {
   if (!EXPIRABLE_REFERRAL_STATUSES.includes(referral.status) || !queue?.queue_date) {
     return { referral, queue };
@@ -300,6 +331,24 @@ export async function updateHealthCenter(id, data) {
   return getHealthCenter(id);
 }
 
+export async function deleteHealthCenter(id) {
+  const [staff, patients, referrals] = await Promise.all([
+    queryOne(`SELECT COUNT(*)::int AS count FROM ${TABLES.users} WHERE health_center_id = $1`, [id]),
+    queryOne(`SELECT COUNT(*)::int AS count FROM ${TABLES.patients} WHERE health_center_id = $1`, [id]),
+    queryOne(
+      `SELECT COUNT(*)::int AS count FROM ${TABLES.referrals}
+       WHERE referring_health_center_id = $1 OR receiving_health_center_id = $1`,
+      [id],
+    ),
+  ]);
+  if (Number(staff?.count) || Number(patients?.count) || Number(referrals?.count)) {
+    const error = new Error('This health center still has staff, patients, or referrals. Deactivate it instead of deleting it.');
+    error.status = 409;
+    throw error;
+  }
+  await query(`DELETE FROM ${TABLES.healthCenters} WHERE id = $1`, [id]);
+}
+
 export async function findUserByEmail(email) {
   const user = await selectOne(
     `SELECT * FROM ${TABLES.users} WHERE email = $1 AND status = 'active' LIMIT 1`,
@@ -337,6 +386,21 @@ export async function updateUser(id, data) {
   return getUser(id);
 }
 
+export async function deleteUser(id) {
+  const referrals = await queryOne(
+    `SELECT COUNT(*)::int AS count FROM ${TABLES.referrals}
+     WHERE submitted_by_user_id = $1 OR reviewed_by_user_id = $1`,
+    [id],
+  );
+  if (Number(referrals?.count)) {
+    const error = new Error('This account is tied to referrals. Deactivate it instead of deleting it.');
+    error.status = 409;
+    throw error;
+  }
+  await query(`UPDATE ${TABLES.auditLogs} SET user_id = NULL WHERE user_id = $1`, [id]);
+  await query(`DELETE FROM ${TABLES.users} WHERE id = $1`, [id]);
+}
+
 export async function updateUserLastLogin(id) {
   const ts = nowIso();
   await query(
@@ -367,7 +431,10 @@ export async function listPatients(filters = {}) {
   }
   if (filters.city) patients = patients.filter((p) => matchesSearch(p.city, filters.city));
   if (filters.province) patients = patients.filter((p) => matchesSearch(p.province, filters.province));
-  if (filters.contactNumber) patients = patients.filter((p) => matchesSearch(p.contact_number, filters.contactNumber));
+  if (filters.contactNumber) {
+    const wanted = phMobileDigits(filters.contactNumber);
+    patients = patients.filter((patient) => wanted && phMobileDigits(patient.contact_number) === wanted);
+  }
   if (filters.email) patients = patients.filter((p) => matchesSearch(p.email, filters.email));
 
   return patients.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100);
@@ -403,11 +470,21 @@ export async function findDuplicatePatient({
     );
   }
 
-  const contactDigits = String(contact_number || '').replace(/\D/g, '');
+  const contactDigits = phMobileDigits(contact_number);
   if (contactDigits) {
     params.push(contactDigits);
     clauses.push(
-      `(contact_number IS NOT NULL AND btrim(contact_number) <> '' AND regexp_replace(contact_number, '\\D', '', 'g') = $${params.length})`,
+      `(contact_number IS NOT NULL AND btrim(contact_number) <> '' AND (
+        CASE
+          WHEN regexp_replace(contact_number, '\\D', '', 'g') ~ '^09[0-9]{9}$'
+            THEN '63' || substring(regexp_replace(contact_number, '\\D', '', 'g') from 2)
+          WHEN regexp_replace(contact_number, '\\D', '', 'g') ~ '^639[0-9]{9}$'
+            THEN regexp_replace(contact_number, '\\D', '', 'g')
+          WHEN regexp_replace(contact_number, '\\D', '', 'g') ~ '^9[0-9]{9}$'
+            THEN '63' || regexp_replace(contact_number, '\\D', '', 'g')
+          ELSE ''
+        END
+      ) = $${params.length})`,
     );
   }
 
@@ -434,7 +511,7 @@ export async function findDuplicatePatient({
   const sameName = String(row.first_name || '').trim().toLowerCase() === String(first_name || '').trim().toLowerCase()
     && String(row.last_name || '').trim().toLowerCase() === String(last_name || '').trim().toLowerCase()
     && String(row.birth_date || '').slice(0, 10) === String(birth_date || '').slice(0, 10);
-  const sameContact = contactDigits && String(row.contact_number || '').replace(/\D/g, '') === contactDigits;
+  const sameContact = contactDigits && phMobileDigits(row.contact_number) === contactDigits;
   const sameEmail = emailKey && String(row.email || '').trim().toLowerCase() === emailKey;
   let reason = 'identity';
   if (!sameName && sameContact) reason = 'contact';
@@ -456,6 +533,7 @@ export async function updatePatient(id, data) {
 }
 
 export async function listReferrals(filters = {}) {
+  await expirePastQueueEntries();
   const limit = Math.min(Math.max(Number(filters.limit) || 300, 1), 1000);
 
   let referralSql = `SELECT * FROM ${TABLES.referrals}`;
@@ -809,6 +887,7 @@ function queueDateKey(value) {
 
 /** Live queue rows joined to real referral records. */
 export async function listQueueEntries(filters = {}) {
+  await expirePastQueueEntries();
   const window = resolveQueueDateWindow(filters);
   const statusFilter = filters.status && String(filters.status).toLowerCase() !== 'all'
     ? String(filters.status).toLowerCase()
@@ -837,8 +916,7 @@ export async function listQueueEntries(filters = {}) {
   }
 
   if (window.range === 'active') {
-    rows = rows.filter((entry) => entry.referral_status === 'queued'
-      && ['waiting', 'called'].includes(entry.queue_status));
+    rows = rows.filter((entry) => isOpenQueueEntry(entry));
   } else if (window.fromDate && window.toDate) {
     const inWindow = rows.filter((entry) => {
       const key = queueDateKey(entry.queue_date);
@@ -846,9 +924,7 @@ export async function listQueueEntries(filters = {}) {
     });
 
     if (window.range === 'today') {
-      // Keep today's board visible AND always include live queued referral records.
-      const activeQueued = rows.filter((entry) => entry.referral_status === 'queued'
-        && ['waiting', 'called'].includes(entry.queue_status));
+      const activeQueued = rows.filter((entry) => isOpenQueueEntry(entry));
       const byId = new Map();
       for (const entry of [...inWindow, ...activeQueued]) byId.set(Number(entry.id), entry);
       rows = [...byId.values()];

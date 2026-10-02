@@ -3,17 +3,18 @@ import { motion } from 'framer-motion';
 import {
   Activity,
   AlertTriangle,
+  Bell,
   BrainCircuit,
+  ClipboardList,
   LayoutDashboard,
   MapPin,
   Sparkles,
   Stethoscope,
+  Users,
 } from 'lucide-react';
 import { api } from '../api';
 import { classNames } from '../components/helpers';
 import {
-  AnimatedGrid,
-  AnimatedGridItem,
   Card,
   CountUp,
   MotionItem,
@@ -47,57 +48,45 @@ const categories = [
 
 export default function Dashboard({ summary, canUseAi = true }) {
   const [activeCategory, setActiveCategory] = useState('overview');
+  const visibleCategories = categories.filter((category) => category.id !== 'ai' || canUseAi);
+  const todayLabel = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
   return (
     <PageStack>
       <PageBlock>
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/60 sm:rounded-3xl">
-          <div className="mb-4 px-1">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Dashboard</h2>
-            <p className="text-sm text-slate-500">Choose an operations category.</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm text-slate-500">Koronadal City referral operations</p>
+            <p className="mt-1 text-sm font-medium text-slate-700">{todayLabel}</p>
           </div>
-          <AnimatedGrid className={classNames('grid gap-3', canUseAi ? 'sm:grid-cols-2' : 'sm:grid-cols-1')}>
-            {categories.filter((category) => category.id !== 'ai' || canUseAi).map((category) => {
-              const Icon = category.icon;
-              const isActive = activeCategory === category.id;
-
-              return (
-                <AnimatedGridItem key={category.id}>
+          {visibleCategories.length > 1 ? (
+            <div className="inline-flex rounded-xl bg-slate-100 p-1">
+              {visibleCategories.map((category) => {
+                const Icon = category.icon;
+                const isActive = activeCategory === category.id;
+                return (
                   <button
+                    key={category.id}
                     type="button"
                     onClick={() => setActiveCategory(category.id)}
                     className={classNames(
-                      'group w-full rounded-2xl border p-4 text-left transition',
-                      isActive
-                        ? 'border-cyan-200 bg-cyan-50 shadow-sm shadow-cyan-900/10'
-                        : 'border-slate-200 bg-white hover:border-cyan-200 hover:bg-slate-50',
+                      'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition',
+                      isActive ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800',
                     )}
                   >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div
-                        className={classNames(
-                          'rounded-xl p-2 transition',
-                          isActive
-                            ? 'bg-cyan-700 text-white'
-                            : 'bg-slate-100 text-slate-600 group-hover:bg-cyan-50 group-hover:text-cyan-700',
-                        )}
-                      >
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      {isActive ? (
-                        <span className="rounded-full bg-cyan-700 px-2 py-0.5 text-xs font-semibold text-white">
-                          Active
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="font-semibold text-slate-950">{category.label}</p>
-                    <p className="mt-1 text-xs text-slate-500">{category.description}</p>
+                    <Icon className="h-4 w-4" />
+                    {category.label}
                   </button>
-                </AnimatedGridItem>
-              );
-            })}
-          </AnimatedGrid>
-        </section>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </PageBlock>
 
       <PageBlock>
@@ -142,37 +131,54 @@ function OverviewPanel({ summary }) {
     return acc;
   }, {});
 
-  const statCards = [
-    ['Patients', summary.patientCount || 0, 'Registered records'],
-    ['Referrals', referralTotal, 'Total submissions'],
-    ['Queue Entries', queueTotal, 'Prioritized patients'],
-    ['SMS Logs', smsTotal, 'Notification attempts'],
-    ['Pending Review', operational.pending_review || 0, 'Awaiting city staff'],
-    ['Submitted Today', operational.submitted_today || 0, 'New referrals today'],
-    ['Completion Rate', operational.completion_rate || 0, '% of all referrals'],
-    ['Missed Today', operational.missed_today || 0, 'Needs follow-up'],
-    ['Waiting Queue', operational.waiting_queue || 0, `${waitingRate}% of queue entries`],
+  const headline = [
+    { label: 'Patients', value: summary.patientCount || 0, detail: 'Registered records', icon: Users },
+    { label: 'Referrals', value: referralTotal, detail: 'Total submissions', icon: ClipboardList },
+    { label: 'In queue', value: queueTotal, detail: 'Prioritized patients', icon: Bell },
+    { label: 'Completion', value: operational.completion_rate || 0, detail: 'Share of all referrals', icon: Activity, suffix: '%' },
+  ];
+  const operations = [
+    ['Pending review', operational.pending_review || 0, 'Awaiting city staff'],
+    ['Submitted today', operational.submitted_today || 0, 'New referrals'],
+    ['Missed today', operational.missed_today || 0, 'Needs follow-up'],
+    ['Waiting', operational.waiting_queue || 0, `${waitingRate}% of the queue`],
+    ['SMS sent', smsTotal, 'Notification attempts'],
   ];
 
   return (
     <div className="space-y-5">
-      <MotionStagger className="grid gap-4 md:grid-cols-4" stagger={0.07}>
-        {statCards.map(([label, value, detail], index) => (
-          <MotionItem key={label} variant={popUp}>
-            <MotionDiv
-              whileHover={{ y: -4, scale: 1.02 }}
-              transition={{ duration: 0.25, ease: easeOut }}
-              className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/60"
-            >
-              <p className="text-sm font-medium text-slate-500">{label}</p>
-              <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950 tabular-nums">
-                <CountUp to={Number(value)} delay={index * 0.06} duration={1.4} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {headline.map((item, index) => {
+          const Icon = item.icon;
+          return (
+            <article key={item.label} className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p>
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-50 text-slate-500">
+                  <Icon className="h-4 w-4" />
+                </span>
+              </div>
+              <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 tabular-nums">
+                <CountUp to={Number(item.value)} delay={index * 0.05} duration={1.1} />
+                {item.suffix || ''}
               </p>
-              <p className="mt-1 text-xs text-slate-400">{detail}</p>
-            </MotionDiv>
-          </MotionItem>
+              <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+            </article>
+          );
+        })}
+      </div>
+
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        {operations.map(([label, value, detail]) => (
+          <div key={label} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-xs font-medium text-slate-500">{label}</p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-slate-950">
+              <CountUp to={Number(value)} duration={1} />
+            </p>
+            <p className="mt-0.5 text-xs text-slate-400">{detail}</p>
+          </div>
         ))}
-      </MotionStagger>
+      </section>
 
       <MotionReveal variant={fadeUp}>
         <MotionStagger className="grid gap-5 xl:grid-cols-2" stagger={0.12}>
@@ -316,11 +322,11 @@ function AiAnalyticsPanel() {
     <div className="space-y-5">
       <Card title="AI Analytics" icon={BrainCircuit}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <p className="max-w-2xl text-sm text-slate-600">
-            Charts and case intelligence for barangay hotspots, overloaded centers, and common referral types.
+          <p className="max-w-2xl text-sm text-slate-500">
+            Barangay hotspots, center load, and the referral types seen most often.
           </p>
           <PrimaryButton type="button" disabled={aiLoading} onClick={loadAiInsights}>
-            {aiLoading ? 'Analyzing…' : 'Refresh AI insights'}
+            {aiLoading ? 'Analyzing…' : 'Refresh'}
           </PrimaryButton>
         </div>
 
@@ -332,16 +338,13 @@ function AiAnalyticsPanel() {
 
         {aiInsights ? (
           <div className="space-y-5">
-            <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Sparkles className="h-4 w-4 text-cyan-700" />
-                <p className="text-sm font-semibold text-cyan-950">AI summary</p>
-                <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-cyan-800">
-                  Live database
-                </span>
+                <Sparkles className="h-4 w-4 text-slate-600" />
+                <p className="text-sm font-semibold text-slate-950">Summary</p>
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-cyan-900">{aiInsights.summary}</p>
-              <p className="mt-2 text-xs text-cyan-800">
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">{aiInsights.summary}</p>
+              <p className="mt-2 text-xs text-slate-500">
                 {aiInsights.total_cases} referral rows from Supabase
                 {aiInsights.scope === 'all_referrals' ? ' · all records' : ` · ${aiInsights.scope?.replaceAll('_', ' ')}`}
               </p>
@@ -932,34 +935,39 @@ function chartTotal(rows, valueKey) {
   return rows.reduce((sum, row) => sum + Number(row[valueKey] || 0), 0);
 }
 
+function axisLabel(value) {
+  const text = String(value || '');
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    const date = new Date(`${text.slice(0, 10)}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+  }
+  return text.replaceAll('_', ' ');
+}
+
 function BarChart({ title, rows, labelKey, valueKey }) {
   const max = Math.max(...rows.map((row) => Number(row[valueKey] || 0)), 1);
 
   return (
     <Card title={title} icon={LayoutDashboard}>
-      <div className="flex h-72 items-end gap-2 rounded-2xl bg-slate-50 p-4">
-        {rows.length ? rows.map((row, index) => {
+      <div className="flex h-64 items-end gap-1.5">
+        {rows.length ? rows.map((row) => {
           const value = Number(row[valueKey] || 0);
-          const height = Math.max(8, (value / max) * 210);
+          const height = Math.max(6, (value / max) * 190);
 
           return (
-            <MotionDiv
+            <div
               key={`${title}-${row[labelKey]}`}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ duration: 0.45, delay: index * 0.05, ease: easeOut }}
-              className="group flex min-w-0 flex-1 flex-col items-center justify-end"
-              title={`${row[labelKey]}: ${value}`}
+              className="flex min-w-0 flex-1 flex-col items-center justify-end"
+              title={`${axisLabel(row[labelKey])}: ${value}`}
             >
-              <span className="mb-1 text-[10px] font-semibold text-slate-500 opacity-0 transition group-hover:opacity-100">
-                {value}
-              </span>
-              <div className="w-full rounded-t-xl bg-gradient-to-t from-cyan-700 to-cyan-400" style={{ height }} />
+              <span className="mb-1 text-[10px] font-medium tabular-nums text-slate-400">{value || ''}</span>
+              <div className="w-full rounded-t-md bg-slate-800" style={{ height }} />
               <span className="mt-2 w-full truncate text-center text-[10px] text-slate-500">
-                {String(row[labelKey]).slice(5) || row[labelKey]}
+                {axisLabel(row[labelKey])}
               </span>
-            </MotionDiv>
+            </div>
           );
         }) : (
           <p className="m-auto text-sm text-slate-500">No trend data yet.</p>
@@ -1005,56 +1013,54 @@ function HorizontalBars({ title, rows, labelKey, valueKey }) {
 }
 
 function DonutSummary({ title, rows, labelKey, valueKey }) {
-  const safeRows = Array.isArray(rows) ? rows : [];
-  const total = chartTotal(safeRows, valueKey);
-  const top = [...safeRows].sort((a, b) => Number(b[valueKey] || 0) - Number(a[valueKey] || 0))[0];
+  const slices = buildPieSlices((Array.isArray(rows) ? rows : []).map((row) => ({
+    label: String(row[labelKey] || '').replaceAll('_', ' '),
+    count: Number(row[valueKey] || 0),
+  })).filter((row) => row.count > 0));
+  const total = slices.reduce((sum, row) => sum + row.count, 0);
 
   return (
     <Card title={title} icon={Activity}>
-      <div className="flex items-center gap-4">
-        <MotionDiv
-          initial={{ opacity: 0, scale: 0.75, rotate: -12 }}
-          whileInView={{ opacity: 1, scale: 1, rotate: 0 }}
-          viewport={{ once: true, amount: 0.5 }}
-          transition={{ type: 'spring', stiffness: 220, damping: 18 }}
-          className="grid h-28 w-28 place-items-center rounded-full border-[14px] border-cyan-600 bg-cyan-50"
-        >
-          <div className="text-center">
-            <div className="text-2xl font-bold text-slate-950 tabular-nums">
-              <CountUp to={total} duration={1.5} />
+      {slices.length ? (
+        <div className="flex items-center gap-4">
+          <div className="relative grid h-28 w-28 shrink-0 place-items-center">
+            <svg viewBox="0 0 120 120" className="h-28 w-28 -rotate-90">
+              {slices.map((slice) => (
+                <circle
+                  key={`${title}-${slice.label}`}
+                  cx="60"
+                  cy="60"
+                  r="42"
+                  fill="transparent"
+                  stroke={slice.color}
+                  strokeWidth="16"
+                  strokeDasharray={`${slice.dash} ${slice.gap}`}
+                  strokeDashoffset={slice.offset}
+                />
+              ))}
+            </svg>
+            <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+              <div>
+                <p className="text-lg font-semibold tabular-nums text-slate-950">{total}</p>
+                <p className="text-[10px] uppercase tracking-wide text-slate-400">Total</p>
+              </div>
             </div>
-            <div className="text-[10px] uppercase tracking-wide text-slate-500">Total</div>
           </div>
-        </MotionDiv>
-        <div className="min-w-0 flex-1 space-y-2">
-          <MotionDiv
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 0.5, ease: easeOut }}
-          >
-            <p className="text-sm text-slate-500">Top segment</p>
-            <p className="truncate text-lg font-semibold capitalize text-slate-950">
-              {top ? String(top[labelKey]).replaceAll('_', ' ') : 'No data'}
-            </p>
-          </MotionDiv>
-          <div className="space-y-1">
-            {rows.slice(0, 4).map((row, index) => (
-              <MotionDiv
-                key={`${title}-${row[labelKey]}`}
-                initial={{ opacity: 0, x: 12 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, amount: 0.3 }}
-                transition={{ duration: 0.4, delay: 0.08 * index, ease: easeOut }}
-                className="flex justify-between text-xs text-slate-500"
-              >
-                <span className="capitalize">{String(row[labelKey]).replaceAll('_', ' ')}</span>
-                <span>{row[valueKey]}</span>
-              </MotionDiv>
+          <div className="min-w-0 flex-1 space-y-2">
+            {slices.slice(0, 5).map((slice) => (
+              <div key={`${title}-row-${slice.label}`} className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex min-w-0 items-center gap-2 text-slate-600">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
+                  <span className="truncate capitalize">{slice.label}</span>
+                </span>
+                <span className="shrink-0 font-medium tabular-nums text-slate-900">{slice.count}</span>
+              </div>
             ))}
           </div>
         </div>
-      </div>
+      ) : (
+        <p className="text-sm text-slate-500">No data yet.</p>
+      )}
     </Card>
   );
 }
@@ -1065,11 +1071,7 @@ function MetricList({ title, rows }) {
       <MotionStagger className="space-y-3" stagger={0.08}>
         {rows.length ? rows.map((row) => (
           <MotionItem key={row.operation} variant={popUp}>
-            <MotionDiv
-              whileHover={{ scale: 1.02, x: 4 }}
-              transition={{ duration: 0.2, ease: easeOut }}
-              className="rounded-2xl bg-slate-50 p-3"
-            >
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-semibold capitalize text-slate-800">
                   {String(row.operation).replaceAll('_', ' ')}
@@ -1086,7 +1088,7 @@ function MetricList({ title, rows }) {
                   <span>Max: {row.max_ms} ms</span>
                 </div>
               )}
-            </MotionDiv>
+            </div>
           </MotionItem>
         )) : (
           <MotionItem variant={fadeUp}>

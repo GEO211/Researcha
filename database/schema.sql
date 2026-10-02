@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   health_center_id INT NULL,
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
+  contact_number VARCHAR(30),
+  avatar TEXT,
   password VARCHAR(255) NOT NULL,
   role ENUM('super_admin', 'barangay_staff', 'city_staff') NOT NULL,
   status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',

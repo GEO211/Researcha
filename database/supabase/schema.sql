@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   health_center_id INT REFERENCES health_centers(id),
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
+  contact_number VARCHAR(30),
+  avatar TEXT,
   password VARCHAR(255) NOT NULL,
   role VARCHAR(30) NOT NULL CHECK (role IN ('super_admin', 'barangay_staff', 'city_staff')),
   status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),

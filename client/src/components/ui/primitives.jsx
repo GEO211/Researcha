@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { classNames } from '../helpers';
+import { phSubscriberDigits } from '../../lib/patientValidation';
 import { cn } from '@/lib/utils';
 import { easeOut } from './motion';
 
@@ -70,6 +71,40 @@ export function TextInput({ className, allowNumbers = true, numericOnly = false,
         className,
       )}
     />
+  );
+}
+
+export function PhPhoneInput({ value, onChange, className, ...props }) {
+  const subscriber = phSubscriberDigits(value);
+
+  function handleChange(event) {
+    const next = phSubscriberDigits(event.target.value);
+    if (typeof onChange === 'function') {
+      onChange({ target: { value: next ? `+63${next}` : '' } });
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'flex w-full overflow-hidden rounded-xl border bg-white focus-within:ring-2',
+        props['aria-invalid']
+          ? 'border-red-400 focus-within:border-red-500 focus-within:ring-red-100'
+          : 'border-slate-300 focus-within:border-cyan-600 focus-within:ring-cyan-100',
+        className,
+      )}
+    >
+      <span className="flex items-center border-r border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">+63</span>
+      <input
+        {...props}
+        value={subscriber}
+        onChange={handleChange}
+        inputMode="numeric"
+        autoComplete="tel-national"
+        placeholder={props.placeholder || '9XXXXXXXXX'}
+        className="w-full bg-white px-3 py-2 text-sm outline-none"
+      />
+    </div>
   );
 }
 

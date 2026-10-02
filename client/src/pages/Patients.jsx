@@ -24,12 +24,13 @@ import {
   TableHead,
   TableHeadCell,
   TableShell,
+  PhPhoneInput,
   TextInput,
   useConfirm,
 } from '../components/ui';
 import { classNames, formatDateTime } from '../components/helpers';
 import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
-import { applyServerIssues, validatePatientForm } from '../lib/patientValidation';
+import { applyServerIssues, normalizePhMobile, validatePatientForm } from '../lib/patientValidation';
 import {
   PATIENT_CLASSIFICATION_FIELDS,
   classificationTones,
@@ -276,8 +277,8 @@ function PatientForm({ onCreated, healthCenters, user }) {
             <option value="other">Other</option>
           </SelectInput>
         </Field>
-        <Field label="Contact number" error={fieldErrors.contact_number} hint="Optional PH mobile for SMS reminders">
-          <TextInput value={form.contact_number} onChange={(event) => update('contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.contact_number)} />
+        <Field label="Contact number" error={fieldErrors.contact_number} hint="Philippine mobile: +63 then 10 digits starting with 9">
+          <PhPhoneInput value={form.contact_number} onChange={(event) => update('contact_number', event.target.value)} aria-invalid={Boolean(fieldErrors.contact_number)} />
         </Field>
         <Field label="Email" error={fieldErrors.email}>
           <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" aria-invalid={Boolean(fieldErrors.email)} />
@@ -287,7 +288,7 @@ function PatientForm({ onCreated, healthCenters, user }) {
             <TextInput value={form.emergency_contact_name} onChange={(event) => update('emergency_contact_name', event.target.value)} aria-invalid={Boolean(fieldErrors.emergency_contact_name)} />
           </Field>
           <Field label="Emergency contact number" error={fieldErrors.emergency_contact_number}>
-            <TextInput value={form.emergency_contact_number} onChange={(event) => update('emergency_contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.emergency_contact_number)} />
+            <PhPhoneInput value={form.emergency_contact_number} onChange={(event) => update('emergency_contact_number', event.target.value)} aria-invalid={Boolean(fieldErrors.emergency_contact_number)} />
           </Field>
         </div>
         <Field label="Address 1" error={fieldErrors.address}>
@@ -444,8 +445,8 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
         <Field label="Province">
           <TextInput value={filters.province} onChange={(event) => updateFilter('province', event.target.value)} placeholder="South Cotabato" />
         </Field>
-        <Field label="Contact number">
-          <TextInput value={filters.contact_number} onChange={(event) => updateFilter('contact_number', event.target.value)} placeholder="09..." />
+        <Field label="Contact number" hint="Matches one Philippine mobile number exactly">
+          <PhPhoneInput value={filters.contact_number} onChange={(event) => updateFilter('contact_number', event.target.value)} />
         </Field>
         <Field label="Email">
           <TextInput value={filters.email} onChange={(event) => updateFilter('email', event.target.value)} placeholder="patient@email.com" />
@@ -479,7 +480,7 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
               <TextInput type="date" value={form.birth_date} onChange={(event) => setForm({ ...form, birth_date: event.target.value })} aria-invalid={Boolean(fieldErrors.birth_date)} required />
             </Field>
             <Field label="Contact number" error={fieldErrors.contact_number}>
-              <TextInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} placeholder="09XXXXXXXXX" aria-invalid={Boolean(fieldErrors.contact_number)} />
+              <PhPhoneInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} aria-invalid={Boolean(fieldErrors.contact_number)} />
             </Field>
             <Field label="Email" error={fieldErrors.email}>
               <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} aria-invalid={Boolean(fieldErrors.email)} />
@@ -567,7 +568,7 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
                   ) : null}
                 </td>
                 <td className="px-4 py-3">
-                  <div className="text-slate-800">{patient.contact_number || 'No SMS number'}</div>
+                  <div className="text-slate-800">{normalizePhMobile(patient.contact_number) || patient.contact_number || 'No SMS number'}</div>
                   <div className="mt-0.5 text-xs text-slate-500">{patient.email || 'No email'}</div>
                 </td>
                 <td className="px-4 py-3">

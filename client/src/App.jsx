@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { HeartPulse, LogOut, Menu, X } from 'lucide-react';
+import { LogOut, Menu } from 'lucide-react';
 import { api, clearSession, flushOfflineNow, getStoredSession } from './api';
 import { classNames, roleLabel, tabIcon, tabLabel } from './components/helpers';
 import { LoadingOverlay } from './components/ui';
@@ -16,7 +16,8 @@ import Profile from './pages/Profile';
 import Queue from './pages/Queue';
 import Referrals from './pages/Referrals';
 import Tracking from './pages/Tracking';
-import { PERMISSIONS, hasPermission, navigationForRole, permissionsForRole } from '@shared/rbac';
+import { PERMISSIONS, hasPermission, navigationForRole } from '@shared/rbac';
+import { phMobileDigits } from './lib/patientValidation';
 
 function App() {
   const [session, setSession] = useState(getStoredSession());
@@ -35,7 +36,6 @@ function App() {
   const [queue, setQueue] = useState([]);
   const [analytics, setAnalytics] = useState({});
   const [users, setUsers] = useState([]);
-  const [settingsData, setSettingsData] = useState({ settings: [], rules: [] });
   const [smsLogs, setSmsLogs] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [referralFilters, setReferralFilters] = useState({ q: '', status: '', priority_level: '' });
@@ -45,7 +45,12 @@ function App() {
   const [error, setError] = useState('');
   const [dataLoading, setDataLoading] = useState(false);
   const [dataReady, setDataReady] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const stored = window.localStorage.getItem('carelink.sidebar');
+    if (stored === 'closed') return false;
+    if (stored === 'open') return true;
+    return window.innerWidth >= 1024;
+  });
   const [authView, setAuthView] = useState('landing');
 
   const user = session?.user;
@@ -76,7 +81,12 @@ function App() {
         Object.fromEntries(Object.entries(referralFilters).filter(([, value]) => value)),
       ).toString();
       const patientQuery = new URLSearchParams(
-        Object.fromEntries(Object.entries(patientFilters).filter(([, value]) => value)),
+        Object.fromEntries(Object.entries(patientFilters).flatMap(([key, value]) => {
+          if (!value) return [];
+          if (key !== 'contact_number') return [[key, value]];
+          const digits = phMobileDigits(value);
+          return digits ? [[key, `+${digits}`]] : [];
+        })),
       ).toString();
 
       if (isPatient) {
@@ -151,15 +161,14 @@ function App() {
         canViewAnalytics ? api('/analytics') : Promise.resolve({}),
       ];
       const adminRequests = canManage
-        ? [api('/users'), api('/settings'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
-        : [Promise.resolve({ users: [] }), Promise.resolve({ settings: [], rules: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
+        ? [api('/users'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
+        : [Promise.resolve({ users: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
 
       const secondary = await Promise.allSettled([...reviewRequests, ...adminRequests]);
       const [
         queueData,
         analyticsData,
         userData,
-        settingsResponse,
         smsLogData,
         auditLogData,
         emailLogData,
@@ -168,7 +177,6 @@ function App() {
       setQueue(queueData?.queue || []);
       setAnalytics(analyticsData || {});
       setUsers(userData?.users || []);
-      setSettingsData(settingsResponse || { settings: [], rules: [] });
       setSmsLogs(smsLogData?.logs || []);
       setAuditLogs(auditLogData?.logs || []);
       setEmailLogs(emailLogData?.logs || []);
@@ -235,9 +243,14 @@ function App() {
     setAuthView('landing');
   }
 
+  function setSidebar(open) {
+    setSidebarOpen(open);
+    window.localStorage.setItem('carelink.sidebar', open ? 'open' : 'closed');
+  }
+
   function selectTab(tabId) {
     setActiveTab(tabId);
-    setSidebarOpen(false);
+    if (window.innerWidth < 1024) setSidebar(false);
   }
 
   if (!session) {
@@ -256,114 +269,119 @@ function App() {
     );
   }
 
+  const accountDetail = user.health_center_name
+    || (roleLabel(user.role) === user.name ? 'System access' : roleLabel(user.role));
+
   const sidebar = (
-    <aside className="flex h-full flex-col bg-slate-950 text-white">
-      <div className="flex items-center justify-between border-b border-white/10 px-5 py-5">
-        <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-cyan-500 p-2.5 text-white shadow-lg shadow-cyan-950/40">
-            <HeartPulse className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">CareLink</h1>
-            <p className="text-xs text-slate-400">Referral Command Center</p>
-          </div>
-        </div>
+    <aside className="flex h-full flex-col bg-white text-slate-900">
+      <div className={classNames('flex items-center border-b border-slate-200', sidebarOpen ? 'gap-2 px-3 py-3' : 'justify-center px-2 py-3')}>
         <button
           type="button"
-          className="rounded-xl p-2 text-slate-300 hover:bg-white/10 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-          aria-label="Close sidebar"
+          className="rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-50"
+          onClick={() => setSidebar(!sidebarOpen)}
+          aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          aria-expanded={sidebarOpen}
         >
-          <X className="h-5 w-5" />
+          <Menu className="h-5 w-5" />
         </button>
+        {sidebarOpen ? (
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold tracking-tight">CareLink</h1>
+            <p className="truncate text-xs text-slate-500">Koronadal City Health</p>
+          </div>
+        ) : null}
       </div>
 
-      <div className="px-4 py-4">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-          <p className="text-sm font-semibold">{user.name}</p>
-          <p className="mt-1 text-xs text-slate-400">{roleLabel(user.role)}</p>
-          <p className="mt-1 truncate text-xs text-slate-500">{user.health_center_name || 'System-wide access'}</p>
-          <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-500">
-            {(user.permissions || permissionsForRole(role)).length} RBAC permissions
-          </p>
-        </div>
-      </div>
-
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className={classNames('flex-1 space-y-1 overflow-y-auto py-3', sidebarOpen ? 'px-3' : 'px-2')}>
         {tabs.map((tab) => {
           const Icon = tabIcon(tab.id);
+          const isActive = activeTab === tab.id;
 
           return (
             <button
               key={tab.id}
               onClick={() => selectTab(tab.id)}
+              title={tab.label}
+              aria-label={tab.label}
               className={classNames(
-                'flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium transition',
-                activeTab === tab.id
-                  ? 'bg-cyan-500 text-white shadow-lg shadow-cyan-950/30'
-                  : 'text-slate-300 hover:bg-white/10 hover:text-white',
+                'flex w-full items-center rounded-lg text-sm transition',
+                sidebarOpen ? 'gap-3 px-3 py-2.5 text-left' : 'justify-center px-0 py-2.5',
+                isActive
+                  ? 'bg-slate-900 font-semibold text-white'
+                  : 'font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-950',
               )}
             >
-              <Icon className="h-4 w-4" />
-              <span>{tab.label}</span>
+              <Icon className={classNames('h-4 w-4 shrink-0', isActive ? 'text-white' : 'text-slate-400')} />
+              {sidebarOpen ? <span className="truncate">{tab.label}</span> : <span className="sr-only">{tab.label}</span>}
             </button>
           );
         })}
       </nav>
 
-      <div className="border-t border-white/10 p-4">
+      {sidebarOpen ? <div className="border-t border-slate-200 p-3">
+        <div className="flex items-center gap-3 px-2 py-2">
+          {user.avatar ? (
+            <img src={user.avatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+          ) : (
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+              {String(user.name || 'C').trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-slate-950">{user.name}</p>
+            <p className="truncate text-xs text-slate-500">{accountDetail}</p>
+          </div>
+        </div>
         <button
           onClick={logout}
-          className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+          className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
         >
           <LogOut className="h-4 w-4" />
           Log out
         </button>
-      </div>
+      </div> : (
+        <div className="border-t border-slate-200 p-2">
+          <button
+            type="button"
+            onClick={logout}
+            title="Log out"
+            aria-label="Log out"
+            className="flex w-full items-center justify-center rounded-lg py-2.5 text-slate-500 hover:bg-slate-50 hover:text-slate-950"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </aside>
   );
 
   return (
     <main className="min-h-screen bg-slate-100">
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:block lg:w-72">
+      <div
+        className={classNames(
+          'fixed inset-y-0 left-0 z-30 border-r border-slate-200 bg-white transition-[width] duration-200',
+          sidebarOpen ? 'w-64' : 'w-14',
+        )}
+      >
         {sidebar}
       </div>
 
       {sidebarOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={() => setSidebarOpen(false)}
-            aria-label="Close sidebar overlay"
-          />
-          <div className="relative h-full w-80 max-w-[85vw] shadow-2xl">
-            {sidebar}
-          </div>
-        </div>
+        <button
+          type="button"
+          className="fixed inset-0 z-20 bg-slate-950/30 lg:hidden"
+          onClick={() => setSidebar(false)}
+          aria-label="Close sidebar"
+        />
       ) : null}
 
-      <div className="lg:pl-72">
+      <div className={classNames('transition-[padding] duration-200', sidebarOpen ? 'pl-64' : 'pl-14')}>
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
           <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-700 shadow-sm lg:hidden"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open sidebar"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-700">CareLink</p>
-                <h2 className="text-xl font-bold tracking-tight text-slate-950">{tabLabel(activeTab)}</h2>
-              </div>
-            </div>
-            <div className="hidden items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 sm:flex">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950">{tabLabel(activeTab)}</h2>
+            <p className="hidden truncate text-sm text-slate-500 sm:block">
               {user.health_center_name || roleLabel(user.role)}
-            </div>
+            </p>
           </div>
         </header>
 
@@ -419,7 +437,6 @@ function App() {
               section={activeTab.replace('admin-', '')}
               users={users}
               healthCenters={healthCenters}
-              settingsData={settingsData}
               smsLogs={smsLogs}
               emailLogs={emailLogs}
               auditLogs={auditLogs}

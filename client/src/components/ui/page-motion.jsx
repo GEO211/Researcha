@@ -234,7 +234,7 @@ export function LoadingOverlay({ open, label = 'Loading' }) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.25, ease: easeOut }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 backdrop-blur-md"
+          className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2"
           role="status"
           aria-live="polite"
           aria-busy="true"
@@ -245,9 +245,9 @@ export function LoadingOverlay({ open, label = 'Loading' }) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 8 }}
             transition={{ duration: 0.3, ease: easeOut }}
-            className="flex flex-col items-center gap-4 rounded-2xl border border-white/70 bg-white/95 px-10 py-7 shadow-2xl"
+            className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-2.5 shadow-lg shadow-slate-900/10"
           >
-            <span className="h-11 w-11 animate-spin rounded-full border-[3px] border-cyan-200 border-t-cyan-600" />
+            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-slate-800" />
             <p className="text-sm font-semibold tracking-wide text-slate-800">
               {label}
               <motion.span

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { createUser, getHealthCenter, getUser, listUsers, updateUser } from '../lib/supabase/store.js';
+import { createUser, deleteUser, getHealthCenter, getUser, listUsers, updateUser } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 
@@ -90,7 +90,20 @@ router.patch('/:id', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (r
   }
 });
 
+router.delete('/:id', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (Number(req.user?.id) === id) {
+      return res.status(400).json({ message: 'You cannot delete the account you are signed in with.' });
+    }
+    const existing = await getUser(id);
+    if (!existing) return res.status(404).json({ message: 'User not found.' });
+    await deleteUser(id);
+    await audit(req, 'user.deleted', 'user', id, { ...existing, password: undefined }, null);
+    return res.json({ message: 'Account deleted.' });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;
-
-
-///test

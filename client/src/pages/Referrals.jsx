@@ -17,9 +17,6 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import {
-  AnimatedGrid,
-  AnimatedGridItem,
-  AnimatedPanel,
   AnimatedTableRow,
   Card,
   Field,
@@ -40,14 +37,14 @@ import {
   TableHead,
   TableHeadCell,
   TableShell,
-  TabPanel,
+  PhPhoneInput,
   TextInput,
   useConfirm,
 } from '../components/ui';
 import { classNames, formatDateTime, priorityLabel } from '../components/helpers';
 import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
 import { PATIENT_CLASSIFICATION_FIELDS, emptyPatientClassifications } from '../data/patientClassifications';
-import { applyServerIssues, validatePatientForm } from '../lib/patientValidation';
+import { applyServerIssues, normalizePhMobile, validatePatientForm } from '../lib/patientValidation';
 
 const initialReferral = {
   patient_id: '',
@@ -212,40 +209,62 @@ const REFERRAL_ACTION_CONFIRM = {
   },
 };
 
-function ReferralStats({ referrals, activeGroup, onSelectGroup }) {
-  const counts = useMemo(() => ({
+function referralCounts(referrals) {
+  return {
     all: referrals.length,
-    pending: referrals.filter((r) => STATUS_GROUPS.pending.includes(r.status)).length,
-    active: referrals.filter((r) => STATUS_GROUPS.active.includes(r.status) && !r.is_expired).length,
-    closed: referrals.filter((r) => STATUS_GROUPS.closed.includes(r.status)).length,
-  }), [referrals]);
+    pending: referrals.filter((referral) => STATUS_GROUPS.pending.includes(referral.status)).length,
+    active: referrals.filter((referral) => STATUS_GROUPS.active.includes(referral.status) && !referral.is_expired).length,
+    closed: referrals.filter((referral) => STATUS_GROUPS.closed.includes(referral.status)).length,
+  };
+}
 
-  const items = [
-    { id: 'all', label: 'All', count: counts.all, tone: 'border-slate-200 bg-white text-slate-700' },
-    { id: 'pending', label: 'Needs review', count: counts.pending, tone: 'border-amber-200 bg-amber-50 text-amber-900' },
-    { id: 'active', label: 'In queue', count: counts.active, tone: 'border-cyan-200 bg-cyan-50 text-cyan-900' },
-    { id: 'closed', label: 'Closed', count: counts.closed, tone: 'border-slate-200 bg-slate-50 text-slate-600' },
-  ];
+function referralSummary(counts) {
+  if (!counts.all) return 'No referrals yet. New submissions will appear here.';
+  const waiting = counts.pending
+    ? `${counts.pending} ${counts.pending === 1 ? 'is' : 'are'} waiting for a decision`
+    : 'Nothing is waiting for a decision';
+  const queued = counts.active
+    ? `${counts.active} ${counts.active === 1 ? 'is' : 'are'} in the queue`
+    : 'the queue is empty';
+  const closed = counts.closed
+    ? `${counts.closed} ${counts.closed === 1 ? 'is' : 'are'} closed`
+    : 'none are closed';
+  return `${counts.all} referral${counts.all === 1 ? '' : 's'}. ${waiting}, ${queued}, and ${closed}.`;
+}
+
+const STATUS_VIEWS = [
+  { id: 'all', label: 'All', hint: 'Every referral' },
+  { id: 'pending', label: 'Needs review', hint: 'Waiting for a decision' },
+  { id: 'active', label: 'In queue', hint: 'Approved and waiting' },
+  { id: 'closed', label: 'Closed', hint: 'Finished or cancelled' },
+];
+
+function ReferralStats({ referrals, activeGroup, onSelectGroup }) {
+  const counts = useMemo(() => referralCounts(referrals), [referrals]);
 
   return (
-    <AnimatedGrid className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-      {items.map((item) => (
-        <AnimatedGridItem key={item.id}>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {STATUS_VIEWS.map((item) => {
+        const selected = activeGroup === item.id;
+        return (
           <button
+            key={item.id}
             type="button"
             onClick={() => onSelectGroup(item.id)}
             className={classNames(
-              'w-full rounded-xl border px-3 py-2.5 text-left transition hover:shadow-sm sm:rounded-2xl sm:px-4 sm:py-3',
-              item.tone,
-              activeGroup === item.id ? 'ring-2 ring-cyan-500 ring-offset-1' : '',
+              'rounded-2xl border px-4 py-3 text-left transition',
+              selected
+                ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                : 'border-slate-200 bg-white text-slate-900 hover:border-slate-300',
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80 sm:text-xs">{item.label}</p>
-            <p className="mt-0.5 text-xl font-bold sm:mt-1 sm:text-2xl">{item.count}</p>
+            <p className={classNames('text-xs font-medium', selected ? 'text-slate-300' : 'text-slate-500')}>{item.label}</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight">{counts[item.id]}</p>
+            <p className={classNames('mt-1 text-xs', selected ? 'text-slate-300' : 'text-slate-500')}>{item.hint}</p>
           </button>
-        </AnimatedGridItem>
-      ))}
-    </AnimatedGrid>
+        );
+      })}
+    </div>
   );
 }
 
@@ -274,14 +293,9 @@ function WorkflowGuide({ canReview }) {
 }
 
 export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, canCreate = !canReview, user, onRefresh }) {
-  const [activeCategory, setActiveCategory] = useState(canCreate ? 'new' : 'records');
-  const [recordsTab, setRecordsTab] = useState('list');
-  const [statusGroup, setStatusGroup] = useState(canReview ? 'pending' : 'all');
-
-  const categories = [
-    ...(canCreate ? [{ id: 'new', label: 'New Referral', description: 'Submit and instantly queue with SMS', icon: ClipboardList }] : []),
-    { id: 'records', label: 'Referral Records', description: 'Search, review, and manage referrals', icon: ListChecks },
-  ];
+  const [screen, setScreen] = useState(canCreate ? 'new' : 'list');
+  const [statusGroup, setStatusGroup] = useState('all');
+  const counts = useMemo(() => referralCounts(referrals), [referrals]);
 
   const filteredReferrals = useMemo(() => {
     let rows = [...referrals];
@@ -319,139 +333,125 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
     [referrals],
   );
 
-  const recordsTabs = [
-    { id: 'list', label: 'Active list', icon: Inbox },
-    { id: 'history', label: 'History', icon: History },
-    ...(canReview ? [{ id: 'sms', label: 'Send SMS', icon: Send }] : []),
-  ];
-
   function handleStatusGroup(group) {
     setStatusGroup(group);
-    if (group === 'pending') {
-      setFilters((current) => ({ ...current, status: '' }));
-    } else if (group === 'active') {
-      setFilters((current) => ({ ...current, status: 'queued' }));
-    } else {
-      setFilters((current) => ({ ...current, status: '' }));
-    }
+    setScreen('list');
+    setFilters((current) => ({ ...current, status: '' }));
   }
 
   async function handleReferralCreated() {
     await onRefresh();
-    setActiveCategory('records');
-    setRecordsTab('list');
+    setScreen('list');
+    setStatusGroup('all');
   }
+
+  const recordScreens = [
+    { id: 'list', label: 'List', icon: Inbox },
+    { id: 'history', label: 'History', icon: History },
+    ...(canReview ? [{ id: 'sms', label: 'Send SMS', icon: Send }] : []),
+  ];
 
   return (
     <PageStack>
       <PageBlock>
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/60 sm:rounded-3xl">
-          <AnimatedPanel className="mb-4 px-1">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-950">Referrals</h2>
-            <p className="text-sm text-slate-500">Choose a referral workflow category.</p>
-          </AnimatedPanel>
-          <AnimatedGrid className="grid gap-3 sm:grid-cols-2">
-            {categories.map((category) => {
-              const Icon = category.icon;
-              const isActive = activeCategory === category.id;
-
-              return (
-                <AnimatedGridItem key={category.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveCategory(category.id)}
-                    className={classNames(
-                      'group w-full rounded-2xl border p-4 text-left transition',
-                      isActive
-                        ? 'border-cyan-200 bg-cyan-50 shadow-sm shadow-cyan-900/10'
-                        : 'border-slate-200 bg-white hover:border-cyan-200 hover:bg-slate-50',
-                    )}
-                  >
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className={classNames(
-                        'rounded-xl p-2 transition',
-                        isActive ? 'bg-cyan-700 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-cyan-50 group-hover:text-cyan-700',
-                      )}
-                      >
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      {isActive ? <span className="rounded-full bg-cyan-700 px-2 py-0.5 text-xs font-semibold text-white">Active</span> : null}
-                    </div>
-                    <p className="font-semibold text-slate-950">{category.label}</p>
-                    <p className="mt-1 text-xs text-slate-500">{category.description}</p>
-                  </button>
-                </AnimatedGridItem>
-              );
-            })}
-          </AnimatedGrid>
-        </section>
-      </PageBlock>
-
-      <PageBlock>
-        <TabPanel panelKey={activeCategory}>
-          {activeCategory === 'new' ? (
-            <div className="space-y-4">
-              <WorkflowGuide canReview={canReview} />
-              <ReferralForm
-                patients={patients}
-                healthCenters={healthCenters}
-                user={user}
-                onCreated={handleReferralCreated}
-              />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <ReferralStats referrals={referrals} activeGroup={statusGroup} onSelectGroup={handleStatusGroup} />
-
-              <div className="-mx-1 overflow-x-auto border-b border-slate-200 pb-px">
-                <div className="flex min-w-max gap-1 px-1">
-                  {recordsTabs.map((tab) => {
-                    const Icon = tab.icon;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setRecordsTab(tab.id)}
-                        className={classNames(
-                          'inline-flex shrink-0 items-center gap-2 rounded-t-xl px-3 py-2.5 text-sm font-semibold transition sm:px-4',
-                          recordsTab === tab.id
-                            ? 'bg-white text-cyan-800 ring-1 ring-slate-200 ring-b-white'
-                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700',
-                        )}
-                      >
-                        <Icon className="h-4 w-4" />
-                        <span className="whitespace-nowrap">{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm text-slate-600">{referralSummary(counts)}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            {canCreate ? (
+              <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setScreen('list')}
+                  className={classNames(
+                    'rounded-lg px-3 py-2 text-sm font-semibold transition',
+                    screen !== 'new' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800',
+                  )}
+                >
+                  Records
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScreen('new')}
+                  className={classNames(
+                    'rounded-lg px-3 py-2 text-sm font-semibold transition',
+                    screen === 'new' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800',
+                  )}
+                >
+                  New referral
+                </button>
               </div>
-
-              {recordsTab === 'list' ? (
-                <ReferralTable
-                  referrals={filteredReferrals}
-                  totalCount={referrals.length}
-                  onRefresh={onRefresh}
-                  canReview={canReview}
-                  canTransfer
-                  healthCenters={healthCenters}
-                  filters={filters}
-                  setFilters={setFilters}
-                  statusGroup={statusGroup}
-                />
-              ) : null}
-
-              {recordsTab === 'history' ? (
-                <ReferralHistory referrals={historyReferrals} />
-              ) : null}
-
-              {recordsTab === 'sms' && canReview ? (
-                <ManualSmsPanel referrals={referrals} onRefresh={onRefresh} />
-              ) : null}
-            </div>
-          )}
-        </TabPanel>
+            ) : null}
+            {screen !== 'new' ? (
+              <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                {recordScreens.map((item) => {
+                  const Icon = item.icon;
+                  const selected = screen === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setScreen(item.id)}
+                      className={classNames(
+                        'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition',
+                        selected ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800',
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </PageBlock>
+
+      {screen === 'new' ? (
+        <PageBlock>
+          <div className="space-y-4">
+            <WorkflowGuide canReview={canReview} />
+            <ReferralForm
+              patients={patients}
+              healthCenters={healthCenters}
+              user={user}
+              onCreated={handleReferralCreated}
+            />
+          </div>
+        </PageBlock>
+      ) : null}
+
+      {screen === 'list' ? (
+        <PageBlock>
+          <div className="space-y-4">
+            <ReferralStats referrals={referrals} activeGroup={statusGroup} onSelectGroup={handleStatusGroup} />
+            <ReferralTable
+              referrals={filteredReferrals}
+              totalCount={referrals.length}
+              onRefresh={onRefresh}
+              canReview={canReview}
+              canTransfer
+              healthCenters={healthCenters}
+              filters={filters}
+              setFilters={setFilters}
+              statusGroup={statusGroup}
+              onShowAll={() => handleStatusGroup('all')}
+            />
+          </div>
+        </PageBlock>
+      ) : null}
+
+      {screen === 'history' ? (
+        <PageBlock>
+          <ReferralHistory referrals={historyReferrals} />
+        </PageBlock>
+      ) : null}
+
+      {screen === 'sms' && canReview ? (
+        <PageBlock>
+          <ManualSmsPanel referrals={referrals} onRefresh={onRefresh} />
+        </PageBlock>
+      ) : null}
     </PageStack>
   );
 }
@@ -481,7 +481,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
   const patientOptions = useMemo(
     () => patients.map((patient) => {
       const fullName = [patient.first_name, patient.middle_name, patient.last_name].filter(Boolean).join(' ');
-      const hintParts = [patient.contact_number, patient.health_center_name, formatDateTime(patient.created_at)].filter(Boolean);
+      const hintParts = [normalizePhMobile(patient.contact_number) || patient.contact_number, patient.health_center_name, formatDateTime(patient.created_at)].filter(Boolean);
       return {
         value: String(patient.id),
         label: fullName,
@@ -687,7 +687,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                           Registered {formatDateTime(selectedPatient.created_at)} at {selectedPatient.health_center_name || '—'}.
                           {' '}
                           {selectedPatient.contact_number
-                            ? 'SMS will be sent to the registered mobile number.'
+                            ? `SMS will be sent to ${normalizePhMobile(selectedPatient.contact_number) || selectedPatient.contact_number}.`
                             : 'This patient has no registered mobile number. Add one before submitting.'}
                         </p>
                       )}
@@ -730,8 +730,8 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                           <option value="other">Other</option>
                         </SelectInput>
                       </Field>
-                      <Field label="Contact number" error={patientFieldErrors.contact_number}>
-                        <TextInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} placeholder="09XXXXXXXXX" aria-invalid={Boolean(patientFieldErrors.contact_number)} required />
+                      <Field label="Contact number" error={patientFieldErrors.contact_number} hint="Philippine mobile: +63 then 10 digits starting with 9">
+                        <PhPhoneInput value={quickPatient.contact_number} onChange={(event) => updateQuickPatient('contact_number', event.target.value)} aria-invalid={Boolean(patientFieldErrors.contact_number)} required />
                       </Field>
                       <div className="sm:col-span-2 lg:col-span-3">
                         <Field label="Address 1" error={patientFieldErrors.address}>
@@ -778,7 +778,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                       <PrimaryButton
                         type="button"
                         className="w-full sm:w-auto"
-                        disabled={registeringPatient || !quickPatient.first_name || !quickPatient.last_name || !quickPatient.birth_date || !quickPatient.address || !quickPatient.contact_number}
+                        disabled={registeringPatient || !quickPatient.first_name || !quickPatient.last_name || !quickPatient.birth_date || !quickPatient.address || !normalizePhMobile(quickPatient.contact_number)}
                         onClick={registerPatient}
                       >
                         Register & select patient
@@ -1151,7 +1151,7 @@ function ReferralRecordCard({
   );
 }
 
-function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup }) {
+function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup, onShowAll }) {
   const confirm = useConfirm();
   const [reviewing, setReviewing] = useState(null);
   const [reviewMode, setReviewMode] = useState('review');
@@ -1304,28 +1304,17 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
   }
 
   const isActing = (id) => actingId === id;
-  const groupLabels = {
-    all: 'All referrals',
-    pending: 'Needs review',
-    active: 'In queue',
-    closed: 'Closed referrals',
-  };
+  const groupCopy = {
+    all: { title: 'All referrals', detail: 'Newest referrals first. Use search or priority to narrow the list.' },
+    pending: { title: 'Needs review', detail: 'These referrals are submitted and still need a decision.' },
+    active: { title: 'In queue', detail: 'These referrals are approved and waiting for their appointment.' },
+    closed: { title: 'Closed', detail: 'Completed, missed, rejected, or cancelled referrals.' },
+  }[statusGroup] || { title: 'Referrals', detail: 'Filtered referrals.' };
+  const hasNarrowingFilters = Boolean(filters.q || filters.status || filters.priority_level);
 
   return (
-    <Card title="Referral records" icon={ListChecks}>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-600">
-          <span className="font-semibold text-slate-900">{referrals.length}</span>
-          {' '}
-          of
-          {' '}
-          <span className="font-semibold text-slate-900">{totalCount}</span>
-          {' '}
-          referrals
-          <span className="mx-2 text-slate-300">·</span>
-          <span className="text-slate-500">{groupLabels[statusGroup] || 'Filtered view'}</span>
-        </p>
-      </div>
+    <Card title={groupCopy.title} icon={ListChecks}>
+      <p className="mb-4 text-sm text-slate-500">{groupCopy.detail}</p>
 
       <div className="mb-4">
         <ReferralFilters filters={filters} setFilters={setFilters} />
@@ -1365,8 +1354,30 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
       {referrals.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center sm:px-6">
           <Inbox className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-3 text-sm font-medium text-slate-700">No referrals match this view</p>
-          <p className="mt-1 text-xs text-slate-500">Try another summary card or clear your filters.</p>
+          <p className="mt-3 text-sm font-medium text-slate-800">
+            {hasNarrowingFilters ? 'No referrals match this search' : {
+              all: 'No referrals yet',
+              pending: 'Nothing is waiting for review',
+              active: 'The queue is empty',
+              closed: 'No closed referrals',
+            }[statusGroup] || 'No referrals in this view'}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            {hasNarrowingFilters
+              ? 'Clear the search or priority filter to see this group again.'
+              : statusGroup === 'all'
+                ? 'New referrals will show up in this list.'
+                : `${totalCount} referral${totalCount === 1 ? ' is' : 's are'} in the other groups.`}
+          </p>
+          {statusGroup !== 'all' && !hasNarrowingFilters && totalCount > 0 ? (
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="mt-4 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Show all referrals
+            </button>
+          ) : null}
         </div>
       ) : (
         <>

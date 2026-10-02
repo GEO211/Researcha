@@ -16,13 +16,18 @@ export function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
-export function normalizePhMobile(value) {
+export function phMobileDigits(value) {
   const digits = digitsOnly(value);
-  if (!digits) return null;
-  if (digits.length === 11 && digits.startsWith('09')) return digits;
-  if (digits.length === 12 && digits.startsWith('639')) return `0${digits.slice(2)}`;
-  if (digits.length === 10 && digits.startsWith('9')) return `0${digits}`;
-  return undefined;
+  if (/^09\d{9}$/.test(digits)) return `63${digits.slice(1)}`;
+  if (/^639\d{9}$/.test(digits)) return digits;
+  if (/^9\d{9}$/.test(digits)) return `63${digits}`;
+  return null;
+}
+
+export function normalizePhMobile(value) {
+  if (!String(value ?? '').trim()) return null;
+  const digits = phMobileDigits(value);
+  return digits ? `+${digits}` : undefined;
 }
 
 export function isValidPhMobile(value) {
@@ -142,14 +147,14 @@ export const patientSchema = z.object({
     ctx.addIssue({
       code: 'custom',
       path: ['contact_number'],
-      message: 'Enter a valid PH mobile number (09XXXXXXXXX).',
+      message: 'Enter a PH mobile number (+639XXXXXXXXX).',
     });
   }
   if (data.emergency_contact_number && normalizePhMobile(data.emergency_contact_number) === undefined) {
     ctx.addIssue({
       code: 'custom',
       path: ['emergency_contact_number'],
-      message: 'Enter a valid PH mobile number (09XXXXXXXXX).',
+      message: 'Enter a PH mobile number (+639XXXXXXXXX).',
     });
   }
 

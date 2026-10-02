@@ -1,10 +1,20 @@
 import cron from 'node-cron';
-import { findReferralsNeedingReminder } from '../lib/supabase/store.js';
+import { expirePastQueueEntries, findReferralsNeedingReminder } from '../lib/supabase/store.js';
 import { appointmentReminderMessage, resolvePatientDisplayName, sendSms } from './smsService.js';
 import { sendEmail } from './emailService.js';
 
 export function startReminderScheduler() {
+  expirePastQueueEntries().catch((error) => {
+    console.error('[CareLink] Queue expiry failed:', error.message);
+  });
+
   cron.schedule('*/5 * * * *', async () => {
+    try {
+      await expirePastQueueEntries();
+    } catch (error) {
+      console.error('[CareLink] Queue expiry failed:', error.message);
+    }
+
     const referrals = await findReferralsNeedingReminder();
 
     for (const referral of referrals) {

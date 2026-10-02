@@ -14,13 +14,29 @@ export function digitsOnly(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
-export function normalizePhMobile(value) {
+const PH_MOBILE_MESSAGE = 'Enter a PH mobile number (+639XXXXXXXXX).';
+
+export function phMobileDigits(value) {
   const digits = digitsOnly(value);
-  if (!digits) return '';
-  if (digits.length === 11 && digits.startsWith('09')) return digits;
-  if (digits.length === 12 && digits.startsWith('639')) return `0${digits.slice(2)}`;
-  if (digits.length === 10 && digits.startsWith('9')) return `0${digits}`;
+  if (/^09\d{9}$/.test(digits)) return `63${digits.slice(1)}`;
+  if (/^639\d{9}$/.test(digits)) return digits;
+  if (/^9\d{9}$/.test(digits)) return `63${digits}`;
   return null;
+}
+
+export function phSubscriberDigits(value) {
+  let digits = digitsOnly(value);
+  if (digits.startsWith('63')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  const start = digits.indexOf('9');
+  if (start === -1) return '';
+  return digits.slice(start, start + 10);
+}
+
+export function normalizePhMobile(value) {
+  if (!String(value || '').trim()) return '';
+  const digits = phMobileDigits(value);
+  return digits ? `+${digits}` : null;
 }
 
 function ageFromBirthDate(isoDate, now = new Date()) {
@@ -85,7 +101,7 @@ export function validatePatientForm(form, { requireContact = false } = {}) {
   if (requireContact && !String(form.contact_number || '').trim()) {
     setError(errors, 'contact_number', 'Mobile number is required.');
   } else if (String(form.contact_number || '').trim() && contact === null) {
-    setError(errors, 'contact_number', 'Enter a valid PH mobile number (09XXXXXXXXX).');
+    setError(errors, 'contact_number', PH_MOBILE_MESSAGE);
   }
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -103,7 +119,7 @@ export function validatePatientForm(form, { requireContact = false } = {}) {
     setError(errors, 'emergency_contact_name', 'Use letters only for the emergency contact name.');
   }
   if (String(form.emergency_contact_number || '').trim() && emergencyNumber === null) {
-    setError(errors, 'emergency_contact_number', 'Enter a valid PH mobile number (09XXXXXXXXX).');
+    setError(errors, 'emergency_contact_number', PH_MOBILE_MESSAGE);
   }
 
   const age = ageFromBirthDate(birth_date);

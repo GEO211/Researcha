@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, CalendarDays, Filter, RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import { api } from '../api';
 import { classNames, priorityLabel } from '../components/helpers';
 import {
   AnimatedTableRow,
   Card,
-  CountUp,
   Field,
-  FilterPanel,
   FlashMessage,
   PageBlock,
   PageStack,
@@ -22,23 +20,21 @@ import {
 const CALL_COOLDOWN_MS = 60_000;
 
 const RANGE_OPTIONS = [
-  { id: 'active', label: 'Active referrals' },
   { id: 'today', label: 'Today' },
+  { id: 'active', label: 'In line' },
   { id: 'yesterday', label: 'Yesterday' },
   { id: 'last_7_days', label: 'Last 7 days' },
   { id: 'last_30_days', label: 'Last 30 days' },
-  { id: 'custom', label: 'Custom date' },
   { id: 'all', label: 'All dates' },
+  { id: 'custom', label: 'Pick a date' },
 ];
 
-const STATUS_OPTIONS = [
-  { value: 'all', label: 'All queue statuses' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'called', label: 'Called' },
-  { value: 'served', label: 'Served' },
-  { value: 'missed', label: 'Missed' },
-  { value: 'cancelled', label: 'Cancelled' },
-  { value: 'expired', label: 'Expired' },
+const QUEUE_VIEWS = [
+  { id: 'all', label: 'All', hint: 'Every visit in this period' },
+  { id: 'waiting', label: 'Waiting', hint: 'Not called yet' },
+  { id: 'called', label: 'Called', hint: 'Patient was notified' },
+  { id: 'served', label: 'Served', hint: 'Visit finished' },
+  { id: 'missed', label: 'Missed', hint: 'Did not arrive' },
 ];
 
 const REFERRAL_STATUS_OPTIONS = [
@@ -46,7 +42,7 @@ const REFERRAL_STATUS_OPTIONS = [
   { value: 'queued', label: 'Queued' },
   { value: 'completed', label: 'Completed' },
   { value: 'missed', label: 'Missed' },
-  { value: 'archived', label: 'Archived' },
+  { value: 'archived', label: 'Cancelled' },
   { value: 'expired', label: 'Expired' },
 ];
 
@@ -57,7 +53,6 @@ const PRIORITY_OPTIONS = [
   { value: 'priority_3_standard', label: 'Standard' },
 ];
 
-const queueStatusOptions = toSearchableOptions(STATUS_OPTIONS);
 const referralStatusOptions = toSearchableOptions(REFERRAL_STATUS_OPTIONS);
 const priorityOptions = toSearchableOptions(PRIORITY_OPTIONS);
 
@@ -84,26 +79,57 @@ function callCooldownSeconds(calledAt, now) {
 
 function formatQueueDate(value) {
   if (!value) return '—';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value);
-  const date = new Date(value);
+  const raw = /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+    ? `${value}T12:00:00`
+    : value;
+  const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
-  // DATE columns often serialize as UTC midnight; render in CareLink timezone.
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(date);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
+function queueSummary(range, rows) {
+  const period = RANGE_OPTIONS.find((option) => option.id === range)?.label || 'This list';
+  if (!rows.length) {
+    if (range === 'active') return 'No one is waiting or has been called. Finished visits stay under Today or All dates.';
+    if (range === 'today') return 'No visits for today. A patient appears here after a referral is approved and queued.';
+    return `${period}. No visits in this list.`;
+  }
+  const parts = [
+    ['waiting', 'waiting'],
+    ['called', 'called'],
+    ['served', 'served'],
+    ['missed', 'missed'],
+    ['expired', 'expired'],
+    ['cancelled', 'cancelled'],
+  ].flatMap(([status, label]) => {
+    const count = rows.filter((entry) => queueStatus(entry) === status).length;
+    return count ? [`${count} ${label}`] : [];
+  });
+  const detail = parts.length === 0
+    ? 'none are still open'
+    : parts.length === 1
+      ? parts[0]
+      : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+  return `${period}. ${rows.length} visit${rows.length === 1 ? '' : 's'}: ${detail}.`;
 }
 
 export default function Queue({ onRefresh }) {
   const confirm = useConfirm();
   const [queue, setQueue] = useState([]);
-  const [meta, setMeta] = useState({ total: 0, counts: {}, range: 'today' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [callingId, setCallingId] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [view, setView] = useState('all');
   const [filters, setFilters] = useState({
-    range: 'active',
+    range: 'today',
     date: '',
-    status: 'all',
     priority: 'all',
     referral_status: 'all',
     q: '',
@@ -115,7 +141,7 @@ export default function Queue({ onRefresh }) {
     try {
       const params = new URLSearchParams({
         range: filters.range,
-        status: filters.status,
+        status: 'all',
         priority: filters.priority,
         referral_status: filters.referral_status,
       });
@@ -124,7 +150,6 @@ export default function Queue({ onRefresh }) {
 
       const data = await api(`/queue?${params.toString()}`);
       setQueue(data.queue || []);
-      setMeta(data.meta || { total: (data.queue || []).length, counts: {}, range: filters.range });
     } catch (err) {
       setQueue([]);
       setError(err.message || 'Unable to load queue from the database.');
@@ -168,102 +193,109 @@ export default function Queue({ onRefresh }) {
     }
   }
 
-  const counts = meta.counts || {};
-  const summaryCards = [
-    ['Total', meta.total || queue.length, 'Matching DB rows'],
-    ['Waiting', counts.waiting || 0, 'In line now'],
-    ['Called', counts.called || 0, 'Notified'],
-    ['Served', counts.served || 0, 'Completed visits'],
-    ['Missed', counts.missed || 0, 'Needs follow-up'],
-  ];
-
-  const rangeLabel = RANGE_OPTIONS.find((row) => row.id === filters.range)?.label || 'Today';
-  const dateSubtitle = filters.range === 'active'
-    ? 'Synced with Referral Records · queued'
-    : (meta.from_date && meta.to_date
-      ? (meta.from_date === meta.to_date
-        ? meta.from_date
-        : `${meta.from_date} → ${meta.to_date}`)
-      : 'All queue dates');
+  const viewCounts = QUEUE_VIEWS.reduce((acc, item) => {
+    acc[item.id] = item.id === 'all'
+      ? queue.length
+      : queue.filter((entry) => queueStatus(entry) === item.id).length;
+    return acc;
+  }, {});
+  const visibleQueue = view === 'all'
+    ? queue
+    : queue.filter((entry) => queueStatus(entry) === view);
+  const viewCopy = QUEUE_VIEWS.find((item) => item.id === view) || QUEUE_VIEWS[0];
 
   return (
     <PageStack>
       <PageBlock>
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/60 sm:rounded-3xl">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3 px-1">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Priority Queue</h2>
-              <p className="text-sm text-slate-500">
-                Live from referral records · {rangeLabel}
-                {dateSubtitle ? ` · ${dateSubtitle}` : ''}
-              </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm text-slate-600">{loading ? 'Loading visits…' : queueSummary(filters.range, queue)}</p>
+          <PrimaryButton type="button" disabled={loading} onClick={loadQueue}>
+            <span className="inline-flex items-center gap-2">
+              <RefreshCw className={classNames('h-4 w-4', loading ? 'animate-spin' : '')} />
+              {loading ? 'Loading…' : 'Refresh'}
+            </span>
+          </PrimaryButton>
+        </div>
+      </PageBlock>
+
+      <PageBlock>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex flex-wrap rounded-xl bg-slate-100 p-1">
+              {RANGE_OPTIONS.map((option) => {
+                const selected = filters.range === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setFilters((current) => ({ ...current, range: option.id }))}
+                    className={classNames(
+                      'rounded-lg px-3 py-2 text-sm font-semibold transition',
+                      selected ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800',
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
             </div>
-            <PrimaryButton type="button" disabled={loading} onClick={loadQueue}>
-              <span className="inline-flex items-center gap-2">
-                <RefreshCw className={classNames('h-4 w-4', loading ? 'animate-spin' : '')} />
-                {loading ? 'Loading…' : 'Refresh'}
-              </span>
-            </PrimaryButton>
+            {filters.range === 'custom' ? (
+              <TextInput
+                type="date"
+                aria-label="Queue date"
+                value={filters.date}
+                onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))}
+                className="w-auto"
+              />
+            ) : null}
           </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            {RANGE_OPTIONS.map((option) => {
-              const active = filters.range === option.id;
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            {QUEUE_VIEWS.map((item) => {
+              const selected = view === item.id;
               return (
                 <button
-                  key={option.id}
+                  key={item.id}
                   type="button"
-                  onClick={() => setFilters((current) => ({ ...current, range: option.id }))}
+                  onClick={() => setView(item.id)}
                   className={classNames(
-                    'rounded-xl border px-3 py-2 text-sm font-semibold transition',
-                    active
-                      ? 'border-cyan-200 bg-cyan-50 text-cyan-900'
-                      : 'border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:bg-slate-50',
+                    'rounded-2xl border px-4 py-3 text-left transition',
+                    selected
+                      ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-900 hover:border-slate-300',
                   )}
                 >
-                  {option.label}
+                  <p className={classNames('text-xs font-medium', selected ? 'text-slate-300' : 'text-slate-500')}>{item.label}</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight">{viewCounts[item.id] || 0}</p>
+                  <p className={classNames('mt-1 text-xs', selected ? 'text-slate-300' : 'text-slate-500')}>{item.hint}</p>
                 </button>
               );
             })}
           </div>
+        </div>
+      </PageBlock>
 
-          <FilterPanel
-            title="Queue filters"
-            description="Queue entries are joined to real Referral Records in Supabase."
-          >
-            {filters.range === 'custom' ? (
-              <Field label="Custom date">
+      <PageBlock>
+        <Card title={view === 'all' ? 'Visits' : viewCopy.label}>
+          <p className="mb-4 text-sm text-slate-500">
+            {view === 'all'
+              ? 'Newest queue dates first. A visit expires after its queue day ends.'
+              : viewCopy.hint}
+          </p>
+          <FlashMessage message={error} type="error" className="mb-4" />
+          <FlashMessage message={success} type="success" className="mb-4" />
+
+          <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <Field label="Search">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <TextInput
-                  type="date"
-                  value={filters.date}
-                  onChange={(event) => setFilters((current) => ({ ...current, date: event.target.value }))}
+                  className="pl-9"
+                  placeholder="Patient, queue number, or code"
+                  value={filters.q}
+                  onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
                 />
-              </Field>
-            ) : (
-              <Field label="Date window">
-                <div className="flex h-[42px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
-                  <CalendarDays className="h-4 w-4 text-cyan-700" />
-                  <span>{dateSubtitle}</span>
-                </div>
-              </Field>
-            )}
-            <Field label="Queue status">
-              <SearchableSelect
-                value={filters.status}
-                onChange={(nextValue) => setFilters((current) => ({ ...current, status: nextValue }))}
-                options={queueStatusOptions}
-                placeholder="All queue statuses"
-                searchPlaceholder="Search queue status…"
-              />
-            </Field>
-            <Field label="Referral status">
-              <SearchableSelect
-                value={filters.referral_status}
-                onChange={(nextValue) => setFilters((current) => ({ ...current, referral_status: nextValue }))}
-                options={referralStatusOptions}
-                placeholder="All referral statuses"
-                searchPlaceholder="Search referral status…"
-              />
+              </div>
             </Field>
             <Field label="Priority">
               <SearchableSelect
@@ -274,92 +306,65 @@ export default function Queue({ onRefresh }) {
                 searchPlaceholder="Search priority…"
               />
             </Field>
-            <Field label="Search">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <TextInput
-                  className="pl-9"
-                  placeholder="Patient, queue #, referral code…"
-                  value={filters.q}
-                  onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
-                />
-              </div>
+            <Field label="Referral">
+              <SearchableSelect
+                value={filters.referral_status}
+                onChange={(nextValue) => setFilters((current) => ({ ...current, referral_status: nextValue }))}
+                options={referralStatusOptions}
+                placeholder="All referrals"
+                searchPlaceholder="Search referral status…"
+              />
             </Field>
-          </FilterPanel>
-        </section>
-      </PageBlock>
-
-      <PageBlock>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {summaryCards.map(([label, value, detail]) => (
-            <div
-              key={label}
-              className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-200/50"
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-              <p className="mt-2 text-3xl font-bold tabular-nums text-slate-950">
-                <CountUp to={Number(value || 0)} duration={1} />
-              </p>
-              <p className="mt-1 text-xs text-slate-400">{detail}</p>
-            </div>
-          ))}
-        </div>
-      </PageBlock>
-
-      <PageBlock>
-        <Card title="Queue entries" icon={Bell}>
-          <FlashMessage message={error} type="error" className="mb-4" />
-          <FlashMessage message={success} type="success" className="mb-4" />
-
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <Filter className="h-3.5 w-3.5 text-cyan-700" />
-            <span>
-              Showing {queue.length} row{queue.length === 1 ? '' : 's'} synced with Referral Records
-              {meta.data_source ? ` · ${meta.data_source}` : ''}
-            </span>
           </div>
 
           {loading ? (
-            <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">Loading queue from referral records…</p>
-          ) : queue.length === 0 ? (
-            <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-              No queue entries match these filters. Open Referral Records to confirm queued referrals, or try another date range.
-            </p>
+            <p className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">Loading visits…</p>
+          ) : visibleQueue.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
+              <p className="text-sm font-medium text-slate-800">
+                {queue.length === 0 ? 'No visits in this period' : `No ${viewCopy.label.toLowerCase()} visits`}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {queue.length === 0
+                  ? 'Try Yesterday or All dates. Open visits expire after their queue day ends.'
+                  : 'Choose All to see the other visits in this period.'}
+              </p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1100px] text-left text-sm">
-                <thead className="text-xs uppercase text-slate-500">
+                <thead className="border-y border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
                   <tr>
-                    <th className="p-2">Date</th>
-                    <th className="p-2">Queue #</th>
-                    <th className="p-2">Patient</th>
-                    <th className="p-2">Home barangay</th>
-                    <th className="p-2">Checkup location</th>
-                    <th className="p-2">Priority</th>
-                    <th className="p-2">Queue</th>
-                    <th className="p-2">Referral</th>
-                    <th className="p-2">Code</th>
-                    <th className="p-2">Actions</th>
+                    <th className="px-3 py-2 font-medium">Date</th>
+                    <th className="px-3 py-2 font-medium">Queue</th>
+                    <th className="px-3 py-2 font-medium">Patient</th>
+                    <th className="px-3 py-2 font-medium">Home barangay</th>
+                    <th className="px-3 py-2 font-medium">Checkup</th>
+                    <th className="px-3 py-2 font-medium">Priority</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Referral</th>
+                    <th className="px-3 py-2 font-medium">Code</th>
+                    <th className="px-3 py-2 font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {queue.map((entry, index) => {
+                  {visibleQueue.map((entry, index) => {
                     const callable = canCallPatient(entry);
                     const cooldown = callCooldownSeconds(entry.called_at, now);
                     const isCalling = callingId === entry.id;
 
                     return (
                       <AnimatedTableRow key={entry.id} index={index}>
-                        <td className="p-2 font-mono text-xs text-slate-600">{formatQueueDate(entry.queue_date)}</td>
-                        <td className="p-2 font-mono text-xs text-slate-800">{entry.queue_number}</td>
-                        <td className="p-2 text-slate-800">{queuePatientName(entry)}</td>
-                        <td className="p-2 text-slate-600">{entry.home_barangay || '—'}</td>
-                        <td className="p-2 text-slate-600">{entry.checkup_location || entry.receiving_center_name || '—'}</td>
-                        <td className="p-2">{priorityLabel(entry.priority_level)}</td>
-                        <td className="p-2"><StatusBadge value={queueStatus(entry)} /></td>
-                        <td className="p-2"><StatusBadge value={entry.referral_status || 'unknown'} /></td>
-                        <td className="p-2 font-mono text-xs text-slate-500">{entry.referral_code || '—'}</td>
-                        <td className="p-2">
+                        <td className="px-3 py-3 text-slate-700">{formatQueueDate(entry.queue_date)}</td>
+                        <td className="px-3 py-3 font-medium text-slate-900">{entry.queue_number}</td>
+                        <td className="px-3 py-3 font-medium text-slate-900">{queuePatientName(entry)}</td>
+                        <td className="px-3 py-3 text-slate-600">{entry.home_barangay || '—'}</td>
+                        <td className="px-3 py-3 text-slate-600">{entry.checkup_location || entry.receiving_center_name || '—'}</td>
+                        <td className="px-3 py-3 text-slate-700">{priorityLabel(entry.priority_level)}</td>
+                        <td className="px-3 py-3"><StatusBadge value={queueStatus(entry)} /></td>
+                        <td className="px-3 py-3"><StatusBadge value={entry.referral_status || 'unknown'} /></td>
+                        <td className="px-3 py-3 font-mono text-xs text-slate-500">{entry.referral_code || '—'}</td>
+                        <td className="px-3 py-3">
                           {callable ? (
                             cooldown > 0 ? (
                               <span className="text-xs font-medium text-slate-500">
@@ -368,7 +373,7 @@ export default function Queue({ onRefresh }) {
                             ) : (
                               <button
                                 type="button"
-                                className="font-medium text-cyan-700 disabled:opacity-50"
+                                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
                                 disabled={isCalling}
                                 onClick={() => callPatient(entry.id)}
                               >
@@ -376,9 +381,7 @@ export default function Queue({ onRefresh }) {
                               </button>
                             )
                           ) : (
-                            <span className="text-xs text-slate-400">
-                              {entry.referral_status === 'queued' ? 'No actions' : 'History only'}
-                            </span>
+                            <span className="text-xs text-slate-400">Finished</span>
                           )}
                         </td>
                       </AnimatedTableRow>

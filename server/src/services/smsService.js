@@ -168,24 +168,9 @@ async function isTriggerEnabled(triggerType) {
 
 export function formatPhilippineNumber(number) {
   const digits = String(number || '').replace(/\D/g, '');
-  if (!digits) return null;
-
-  if (digits.startsWith('63') && digits.length === 12) {
-    return `+${digits}`;
-  }
-
-  if (digits.startsWith('0') && digits.length === 11) {
-    return `+63${digits.slice(1)}`;
-  }
-
-  if (digits.length === 10 && digits.startsWith('9')) {
-    return `+63${digits}`;
-  }
-
-  if (digits.length >= 10) {
-    return `+${digits}`;
-  }
-
+  if (/^639\d{9}$/.test(digits)) return `+${digits}`;
+  if (/^09\d{9}$/.test(digits)) return `+63${digits.slice(1)}`;
+  if (/^9\d{9}$/.test(digits)) return `+63${digits}`;
   return null;
 }
 
