@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS patients (
   medical_notes TEXT,
   emergency_contact_name VARCHAR(150),
   emergency_contact_number VARCHAR(30),
+  record_status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (record_status IN ('active', 'archived')),
+  archive_reason VARCHAR(40),
+  archive_note TEXT,
+  archived_at TIMESTAMPTZ,
+  archived_by_user_id INT REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -79,7 +84,7 @@ CREATE TABLE IF NOT EXISTS referrals (
   clinical_urgency VARCHAR(20) NOT NULL CHECK (clinical_urgency IN ('emergency', 'urgent', 'routine')),
   referral_type VARCHAR(40) NOT NULL CHECK (referral_type IN ('emergency', 'specialist_consultation', 'follow_up', 'routine')),
   severity_level VARCHAR(20) NOT NULL DEFAULT 'moderate' CHECK (severity_level IN ('low', 'moderate', 'high', 'critical')),
-  status VARCHAR(30) NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted', 'under_review', 'approved', 'rejected', 'queued', 'completed', 'missed', 'archived', 'expired')),
+  status VARCHAR(30) NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted', 'under_review', 'approved', 'rejected', 'queued', 'completed', 'missed', 'cancelled', 'archived', 'expired')),
   rejection_reason TEXT,
   appointment_at TIMESTAMPTZ,
   reviewed_at TIMESTAMPTZ,

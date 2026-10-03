@@ -161,8 +161,8 @@ function App() {
         canViewAnalytics ? api('/analytics') : Promise.resolve({}),
       ];
       const adminRequests = canManage
-        ? [api('/users'), api('/sms-logs'), api('/audit-logs'), api('/email-logs')]
-        : [Promise.resolve({ users: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] })];
+        ? [api('/users'), api('/sms-logs'), api('/audit-logs'), api('/email-logs'), api('/patients?limit=1000&include_archived=1')]
+        : [Promise.resolve({ users: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ logs: [] }), Promise.resolve({ patients: [] })];
 
       const secondary = await Promise.allSettled([...reviewRequests, ...adminRequests]);
       const [
@@ -172,6 +172,7 @@ function App() {
         smsLogData,
         auditLogData,
         emailLogData,
+        adminPatientData,
       ] = secondary.map((result) => (result.status === 'fulfilled' ? result.value : null));
 
       setQueue(queueData?.queue || []);
@@ -180,6 +181,7 @@ function App() {
       setSmsLogs(smsLogData?.logs || []);
       setAuditLogs(auditLogData?.logs || []);
       setEmailLogs(emailLogData?.logs || []);
+      if (canManage) setPatients(adminPatientData?.patients || []);
       setDataReady(true);
     } catch (err) {
       setError(err.message);
@@ -436,6 +438,7 @@ function App() {
               key={activeTab}
               section={activeTab.replace('admin-', '')}
               users={users}
+              patients={patients}
               healthCenters={healthCenters}
               smsLogs={smsLogs}
               emailLogs={emailLogs}

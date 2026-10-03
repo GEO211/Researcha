@@ -13,17 +13,19 @@ import {
   TextInput,
   useConfirm,
 } from '../components/ui';
-import { roleLabel } from '../components/helpers';
+import { formatDateTime, roleLabel } from '../components/helpers';
+import PatientDirectory from './AdminPatients';
 import { KORONADAL_BARANGAYS, barangayAddressLabel, barangayHealthCenterName } from '../data/koronadalBarangays';
 import { normalizePhMobile } from '../lib/patientValidation';
 
-export default function Admin({ section = 'users', users, healthCenters, smsLogs, emailLogs, auditLogs, onRefresh }) {
+export default function Admin({ section = 'users', users, patients = [], healthCenters, smsLogs, emailLogs, auditLogs, onRefresh }) {
   return (
     <PageStack>
       <PageBlock>
+        {section === 'patients' ? <PatientDirectory patients={patients} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
         {section === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
         {section === 'centers' ? <HealthCenterManagement healthCenters={healthCenters} users={users} onRefresh={onRefresh} /> : null}
-        {section === 'sms' ? <SmsLogsPanel rows={smsLogs} /> : null}
+        {section === 'sms' ? <SmsLogsPanel rows={smsLogs} onRefresh={onRefresh} /> : null}
         {section === 'email' ? <LogsPanel title="Email Logs" rows={emailLogs} columns={['recipient_email', 'subject', 'status', 'trigger_type', 'created_at']} /> : null}
         {section === 'audit' ? <AuditLogsPanel rows={auditLogs} users={users} /> : null}
       </PageBlock>
@@ -46,14 +48,13 @@ function StatusPill({ active, activeLabel = 'Active', inactiveLabel = 'Inactive'
   );
 }
 
-function RowActions({ onEdit, onToggle, active, onDelete }) {
+function RowActions({ onEdit, onToggle, active }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       <button type="button" onClick={onEdit} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
       <button type="button" onClick={onToggle} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
         {active ? 'Deactivate' : 'Activate'}
       </button>
-      <button type="button" onClick={onDelete} className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">Delete</button>
     </div>
   );
 }
@@ -144,9 +145,11 @@ function UserManagement({ users, healthCenters, onRefresh }) {
   async function toggleStatus(user) {
     const nextStatus = user.status === 'active' ? 'disabled' : 'active';
     const confirmed = await confirm({
-      title: nextStatus === 'disabled' ? 'Disable user?' : 'Enable user?',
-      message: `${nextStatus === 'disabled' ? 'Disable' : 'Enable'} ${user.name || user.email}?`,
-      confirmLabel: nextStatus === 'disabled' ? 'Disable' : 'Enable',
+      title: nextStatus === 'disabled' ? 'Deactivate account?' : 'Activate account?',
+      message: nextStatus === 'disabled'
+        ? `Deactivate ${user.name || user.email}? The account stays in the record and can be activated again.`
+        : `Activate ${user.name || user.email}?`,
+      confirmLabel: nextStatus === 'disabled' ? 'Deactivate' : 'Activate',
       tone: nextStatus === 'disabled' ? 'danger' : 'primary',
     });
     if (!confirmed) return;
@@ -157,24 +160,6 @@ function UserManagement({ users, healthCenters, onRefresh }) {
     });
     setActionError('');
     await onRefresh();
-  }
-
-  async function removeUser(user) {
-    const confirmed = await confirm({
-      title: 'Delete account?',
-      message: `Delete ${user.name || user.email}? This cannot be undone.`,
-      confirmLabel: 'Delete account',
-      tone: 'danger',
-    });
-    if (!confirmed) return;
-    try {
-      await api(`/users/${user.id}`, { method: 'DELETE' });
-      if (editing?.id === user.id) setEditing(null);
-      setActionError('');
-      await onRefresh();
-    } catch (error) {
-      setActionError(error.message);
-    }
   }
 
   return (
@@ -266,7 +251,6 @@ function UserManagement({ users, healthCenters, onRefresh }) {
                       active={user.status === 'active'}
                       onEdit={() => setEditing({ ...user, password: '' })}
                       onToggle={() => toggleStatus(user)}
-                      onDelete={() => removeUser(user)}
                     />
                   </td>
                 </tr>
@@ -392,7 +376,9 @@ function HealthCenterManagement({ healthCenters, users = [], onRefresh }) {
     const nextStatus = center.status === 'active' ? 'inactive' : 'active';
     const confirmed = await confirm({
       title: nextStatus === 'inactive' ? 'Deactivate center?' : 'Activate center?',
-      message: `${nextStatus === 'inactive' ? 'Deactivate' : 'Activate'} ${center.name}?`,
+      message: nextStatus === 'inactive'
+        ? `Deactivate ${center.name}? Patient and referral history stays on record.`
+        : `Activate ${center.name}?`,
       confirmLabel: nextStatus === 'inactive' ? 'Deactivate' : 'Activate',
       tone: nextStatus === 'inactive' ? 'danger' : 'primary',
     });
@@ -590,11 +576,47 @@ function smsReason(value) {
   }[value] || String(value || '—').replaceAll('_', ' ');
 }
 
-function SmsLogsPanel({ rows }) {
+function SmsLogsPanel({ rows, onRefresh }) {
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const logs = rows || [];
+
+  async function clearLogs() {
+    const confirmed = await confirm({
+      title: 'Clear SMS logs?',
+      message: `Remove all ${logs.length} SMS log${logs.length === 1 ? '' : 's'}? This cannot be undone.`,
+      confirmLabel: 'Clear logs',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      await api('/sms-logs', { method: 'DELETE' });
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      setError(err.message || 'Could not clear SMS logs.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card title="SMS Logs" icon={ClipboardList}>
-      <p className="mb-4 text-sm text-slate-500">{logs.length} message{logs.length === 1 ? '' : 's'}</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">{logs.length} message{logs.length === 1 ? '' : 's'}</p>
+        <button
+          type="button"
+          onClick={clearLogs}
+          disabled={!logs.length || busy}
+          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? 'Clearing…' : 'Clear logs'}
+        </button>
+      </div>
+      {error ? <p className="mb-4 text-sm font-medium text-red-600">{error}</p> : null}
       {logs.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">No SMS messages yet.</p>
       ) : (
@@ -638,6 +660,10 @@ function auditActionLabel(value) {
     'auth.password_changed': 'Changed password',
     'patient.created': 'Created patient',
     'patient.updated': 'Updated patient',
+    'patient.archived': 'Archived patient',
+    'patient.restored': 'Restored patient',
+    'patient.transferred': 'Transferred patient',
+    'referral.archive_finished': 'Archived finished referrals',
     'referral.submitted': 'Submitted referral',
     'referral.transferred': 'Transferred checkup',
     'referral.under_review': 'Moved referral to review',
@@ -658,8 +684,17 @@ function auditActionLabel(value) {
     'setting.updated': 'Updated setting',
     'priority_rule.updated': 'Updated priority rule',
     'sms.manual_sent': 'Sent SMS',
+    'sms.logs_cleared': 'Cleared SMS logs',
     'queue.called': 'Called patient',
   }[value] || String(value || '—').replaceAll('.', ' ').replaceAll('_', ' ');
+}
+
+function auditDetail(log) {
+  const values = log?.new_values && typeof log.new_values === 'object' ? log.new_values : null;
+  if (!values) return '';
+  const reason = values.reason || '';
+  const note = values.note || '';
+  return [reason, note].filter(Boolean).join(' — ');
 }
 
 function auditEntityLabel(log) {
@@ -716,7 +751,10 @@ function AuditLogsPanel({ rows, users }) {
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{account.name}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">{account.email}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-800">{smsWhen(log.created_at)}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-slate-700">{auditActionLabel(log.action)}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <p className="whitespace-nowrap">{auditActionLabel(log.action)}</p>
+                        {auditDetail(log) ? <p className="mt-0.5 max-w-[16rem] text-xs text-slate-500">{auditDetail(log)}</p> : null}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">{auditEntityLabel(log)}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-800">{account.actor}</td>
                     </tr>

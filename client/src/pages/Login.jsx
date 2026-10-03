@@ -198,9 +198,9 @@ export default function Login({ onLogin, onBack }) {
 
             <MotionHeroItem variant={popUp}>
               <div className="mt-5 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-                {portal === 'patient'
+                {/* {portal === 'patient'
                   ? 'Patients can only view their own referral and queue status. Staff accounts keep full operational access based on role.'
-                  : 'Demo accounts: admin@carelink.local (Super Admin), city@carelink.local (City Health Personnel), barangay@carelink.local. Password: password123.'}
+                  : 'Demo accounts: admin@carelink.local (Super Admin), city@carelink.local (City Health Personnel), barangay@carelink.local. Password: password123.'} */}
               </div>
             </MotionHeroItem>
           </MotionHero>

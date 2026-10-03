@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { createHealthCenter, deleteHealthCenter, getHealthCenter, listHealthCenters, updateHealthCenter } from '../lib/supabase/store.js';
+import { createHealthCenter, getHealthCenter, listHealthCenters, updateHealthCenter } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 import { normalizePhMobile } from '../lib/patientRules.js';
@@ -74,17 +74,10 @@ router.patch('/:id', authenticate, authorize(PERMISSIONS.CENTERS_MANAGE), async 
   }
 });
 
-router.delete('/:id', authenticate, authorize(PERMISSIONS.CENTERS_MANAGE), async (req, res, next) => {
-  try {
-    const id = Number(req.params.id);
-    const existing = await getHealthCenter(id);
-    if (!existing) return res.status(404).json({ message: 'Health center not found.' });
-    await deleteHealthCenter(id);
-    await audit(req, 'health_center.deleted', 'health_center', id, existing, null);
-    return res.json({ message: 'Health center deleted.' });
-  } catch (error) {
-    return next(error);
-  }
+router.delete('/:id', authenticate, authorize(PERMISSIONS.CENTERS_MANAGE), async (req, res) => {
+  return res.status(409).json({
+    message: 'Health centers are not deleted. Deactivate the center so patient and referral history stays intact.',
+  });
 });
 
 export default router;

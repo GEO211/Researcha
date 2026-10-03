@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { getReferral, listSmsLogs } from '../lib/supabase/store.js';
+import { clearSmsLogs, getReferral, listSmsLogs } from '../lib/supabase/store.js';
 import { sendSms } from '../services/smsService.js';
 import { audit } from '../services/auditService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
@@ -19,6 +19,16 @@ router.get('/', authenticate, authorize(PERMISSIONS.SMS_VIEW), async (_req, res,
     res.json({ logs });
   } catch (error) {
     next(error);
+  }
+});
+
+router.delete('/', authenticate, authorize(PERMISSIONS.ADMIN_LOGS), async (req, res, next) => {
+  try {
+    const removed = await clearSmsLogs();
+    await audit(req, 'sms.logs_cleared', 'sms_log', null, null, { removed });
+    return res.json({ removed, message: 'SMS logs cleared.' });
+  } catch (error) {
+    return next(error);
   }
 });
 

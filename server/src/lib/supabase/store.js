@@ -436,8 +436,15 @@ export async function listPatients(filters = {}) {
     patients = patients.filter((patient) => wanted && phMobileDigits(patient.contact_number) === wanted);
   }
   if (filters.email) patients = patients.filter((p) => matchesSearch(p.email, filters.email));
+  if (!filters.includeArchived) {
+    patients = patients.filter((patient) => (patient.record_status || 'active') !== 'archived');
+  }
+  if (filters.recordStatus && filters.recordStatus !== 'all') {
+    patients = patients.filter((patient) => (patient.record_status || 'active') === filters.recordStatus);
+  }
 
-  return patients.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100);
+  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 1000);
+  return patients.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
 }
 
 async function attachPatientCenter(patient) {
@@ -529,6 +536,39 @@ export async function createPatient(data) {
 export async function updatePatient(id, data) {
   const { created_at: _createdAt, health_center_name: _centerName, ...payload } = data;
   await updateRowById(TABLES.patients, id, { ...payload, updated_at: nowIso() });
+  return getPatient(id);
+}
+
+export async function archivePatient(id, { reason, note, userId }) {
+  await updateRowById(TABLES.patients, id, {
+    record_status: 'archived',
+    archive_reason: reason,
+    archive_note: note || null,
+    archived_at: nowIso(),
+    archived_by_user_id: userId || null,
+    updated_at: nowIso(),
+  });
+  return getPatient(id);
+}
+
+export async function transferPatient(id, { healthCenterId, address }) {
+  await updateRowById(TABLES.patients, id, {
+    health_center_id: healthCenterId,
+    address,
+    updated_at: nowIso(),
+  });
+  return getPatient(id);
+}
+
+export async function restorePatient(id) {
+  await updateRowById(TABLES.patients, id, {
+    record_status: 'active',
+    archive_reason: null,
+    archive_note: null,
+    archived_at: null,
+    archived_by_user_id: null,
+    updated_at: nowIso(),
+  });
   return getPatient(id);
 }
 
@@ -804,11 +844,31 @@ export async function cancelReferral(id) {
   const referral = await getRowById(TABLES.referrals, id);
   if (!referral || referral.status !== 'queued') return false;
   await query(
-    `UPDATE ${TABLES.referrals} SET status = 'archived', updated_at = $1 WHERE id = $2`,
+    `UPDATE ${TABLES.referrals} SET status = 'cancelled', updated_at = $1 WHERE id = $2`,
     [nowIso(), id],
   );
   await updateQueueByReferral(id, { queue_status: 'cancelled' });
   return true;
+}
+
+const ARCHIVABLE_REFERRAL_STATUSES = ['completed', 'missed', 'rejected', 'expired', 'cancelled'];
+
+export function canArchiveReferralStatus(status) {
+  return ARCHIVABLE_REFERRAL_STATUSES.includes(status);
+}
+
+export async function archiveFinishedReferrals(healthCenterId) {
+  const params = [nowIso(), ARCHIVABLE_REFERRAL_STATUSES];
+  let sql = `UPDATE ${TABLES.referrals}
+    SET status = 'archived', updated_at = $1
+    WHERE status = ANY($2::text[])`;
+  if (healthCenterId) {
+    params.push(Number(healthCenterId));
+    sql += ` AND (referring_health_center_id = $3 OR receiving_health_center_id = $3)`;
+  }
+  sql += ' RETURNING id';
+  const rows = await query(sql, params);
+  return rows.map((row) => Number(row.id));
 }
 
 function enrichQueueEntries(queues, { referrals, patients, centers }) {
@@ -937,6 +997,7 @@ export async function listQueueEntries(filters = {}) {
   if ((window.range === 'today' || window.range === 'active') && !statusFilter && !referralStatusFilter) {
     rows = rows.filter((entry) => !['cancelled', 'expired'].includes(entry.queue_status)
       && entry.referral_status !== 'archived'
+      && entry.referral_status !== 'cancelled'
       && entry.referral_status !== 'expired'
       && entry.referral_status !== 'rejected');
   }
@@ -1093,6 +1154,12 @@ export async function listSmsLogs(limit = 100) {
     })
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, limit || undefined);
+}
+
+export async function clearSmsLogs() {
+  const count = await queryOne(`SELECT COUNT(*)::int AS count FROM ${TABLES.smsLogs}`);
+  await query(`DELETE FROM ${TABLES.smsLogs}`);
+  return Number(count?.count) || 0;
 }
 
 export async function hasSmsReminder(referralId) {
@@ -1526,7 +1593,7 @@ export async function exportReferralsRows() {
 }
 
 export async function exportPatientsRows() {
-  const [patients, centerMap] = await Promise.all([listPatients({}), getHealthCenterMap()]);
+  const [patients, centerMap] = await Promise.all([listPatients({ includeArchived: true, limit: 1000 }), getHealthCenterMap()]);
   return patients.map((p) => ({
     id: p.id,
     patient_name: `${p.first_name} ${p.last_name}`,
@@ -1542,6 +1609,8 @@ export async function exportPatientsRows() {
     is_indigenous: p.is_indigenous,
     is_solo_parent: p.is_solo_parent,
     health_center: centerMap.get(Number(p.health_center_id))?.name,
+    record_status: p.record_status || 'active',
+    archive_reason: p.archive_reason || '',
     created_at: p.created_at,
   }));
 }
@@ -1608,7 +1677,7 @@ export async function findReferralsNeedingReminder() {
 }
 
 function resolvePublicTrackingStatus(referral) {
-  if (referral.status === 'archived') {
+  if (referral.status === 'cancelled') {
     return {
       display_status: 'cancelled',
       is_cancelled: true,
@@ -1616,6 +1685,17 @@ function resolvePublicTrackingStatus(referral) {
       status_message: 'This referral was cancelled. Please contact your barangay health center if you need a new referral.',
       status_subtitle: 'This referral was cancelled',
       queue_label: 'Cancelled',
+    };
+  }
+
+  if (referral.status === 'archived') {
+    return {
+      display_status: 'archived',
+      is_cancelled: false,
+      is_expired: false,
+      status_message: 'This referral is archived.',
+      status_subtitle: 'This referral is archived',
+      queue_label: 'Archived',
     };
   }
 

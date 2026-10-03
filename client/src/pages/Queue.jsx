@@ -42,7 +42,8 @@ const REFERRAL_STATUS_OPTIONS = [
   { value: 'queued', label: 'Queued' },
   { value: 'completed', label: 'Completed' },
   { value: 'missed', label: 'Missed' },
-  { value: 'archived', label: 'Cancelled' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'archived', label: 'Archived' },
   { value: 'expired', label: 'Expired' },
 ];
 

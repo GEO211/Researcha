@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
   approveReferralWithQueue,
+  archiveFinishedReferrals,
+  canArchiveReferralStatus,
   cancelReferral,
   completeReferral,
   countTodayQueueEntries,
@@ -92,6 +94,10 @@ router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (r
 
     if (!patient) {
       return res.status(404).json({ message: 'Patient not found.' });
+    }
+
+    if (patient.record_status === 'archived') {
+      return res.status(409).json({ message: 'This patient record is archived and cannot receive a new referral.' });
     }
 
     if (req.user.role === 'barangay_staff' && patient.health_center_id !== req.user.health_center_id) {
@@ -441,8 +447,8 @@ router.post('/:id/cancel', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW)
     const id = Number(req.params.id);
     const referral = await getReferral(id);
     if (!referral) return res.status(404).json({ message: 'Referral not found.' });
-    if (referral.status === 'archived') {
-      return res.json({ id, status: 'archived', queue_status: 'cancelled' });
+    if (referral.status === 'cancelled' || referral.status === 'archived') {
+      return res.json({ id, status: referral.status, queue_status: 'cancelled' });
     }
 
     const actionError = referralActionError(res, referral, 'cancel');
@@ -466,7 +472,7 @@ router.post('/:id/cancel', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW)
     await audit(req, 'referral.cancelled', 'referral', id);
     return res.json({
       id,
-      status: 'archived',
+      status: 'cancelled',
       queue_status: 'cancelled',
       sms_status: smsResult.status,
       sms_error: smsResult.error || smsResult.reason || null,
@@ -545,12 +551,23 @@ router.post('/:id/invalid-queue', authenticate, authorize(PERMISSIONS.REFERRALS_
   }
 });
 
+router.post('/archive-finished', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
+  try {
+    const healthCenterId = req.user.role === 'barangay_staff' ? req.user.health_center_id : null;
+    const ids = await archiveFinishedReferrals(healthCenterId);
+    await audit(req, 'referral.archive_finished', 'referral', null, null, { count: ids.length });
+    return res.json({ archived: ids.length, ids });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post('/:id/archive', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const referral = await getReferral(id);
 
-    if (!referral || !['completed', 'missed', 'rejected', 'expired'].includes(referral.status)) {
+    if (!referral || !canArchiveReferralStatus(referral.status)) {
       return res.status(404).json({ message: 'Referral not found or cannot be archived.' });
     }
 

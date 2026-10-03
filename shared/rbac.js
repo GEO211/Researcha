@@ -11,6 +11,7 @@ export const PERMISSIONS = {
   PATIENTS_VIEW: 'patients.view',
   PATIENTS_CREATE: 'patients.create',
   PATIENTS_UPDATE: 'patients.update',
+  PATIENTS_ARCHIVE: 'patients.archive',
   REFERRALS_VIEW: 'referrals.view',
   REFERRALS_CREATE: 'referrals.create',
   REFERRALS_REVIEW: 'referrals.review',
@@ -38,6 +39,8 @@ const P = PERMISSIONS;
 
 const SUPER_ADMIN = [
   P.DASHBOARD_VIEW,
+  P.PATIENTS_VIEW,
+  P.PATIENTS_ARCHIVE,
   P.USERS_MANAGE,
   P.CENTERS_VIEW,
   P.CENTERS_MANAGE,
@@ -125,6 +128,7 @@ export function hasAllPermissions(role, ...required) {
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', permission: P.DASHBOARD_VIEW },
+  { id: 'admin-patients', label: 'Patients', permission: P.USERS_MANAGE },
   { id: 'patients', label: 'Patients', permission: P.PATIENTS_CREATE },
   { id: 'referrals', label: 'Referrals', anyOf: [P.REFERRALS_CREATE, P.REFERRALS_REVIEW] },
   { id: 'queue', label: 'Queue', permission: P.QUEUE_VIEW },

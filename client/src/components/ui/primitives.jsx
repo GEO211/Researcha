@@ -280,13 +280,17 @@ export function FloatingActionMenu({
 
 export function StatusBadge({ value }) {
   const normalized = String(value || 'unknown');
-  const label = normalized === 'archived' || normalized === 'cancelled'
-    ? 'cancelled'
-    : normalized.replaceAll('_', ' ');
+  const label = normalized === 'archived'
+    ? 'archived'
+    : normalized === 'cancelled'
+      ? 'cancelled'
+      : normalized.replaceAll('_', ' ');
   const tone = normalized === 'expired'
     ? 'bg-amber-50 text-amber-800'
-    : normalized === 'archived' || normalized === 'cancelled'
-      ? 'bg-slate-100 text-slate-600'
+    : normalized === 'archived'
+      ? 'bg-violet-50 text-violet-800'
+      : normalized === 'cancelled'
+        ? 'bg-slate-100 text-slate-600'
       : normalized === 'rejected'
         ? 'bg-red-50 text-red-700'
         : normalized === 'completed'

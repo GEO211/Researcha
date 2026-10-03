@@ -80,7 +80,8 @@ const REFERRAL_STATUS_FILTER_OPTIONS = [
   { value: 'completed', label: 'Completed' },
   { value: 'missed', label: 'Missed' },
   { value: 'rejected', label: 'Rejected' },
-  { value: 'archived', label: 'Cancelled' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'archived', label: 'Archived' },
   { value: 'expired', label: 'Expired' },
 ];
 
@@ -114,7 +115,7 @@ const initialQuickPatient = {
 const STATUS_GROUPS = {
   pending: ['submitted', 'under_review'],
   active: ['queued'],
-  closed: ['completed', 'missed', 'rejected', 'expired', 'archived'],
+  closed: ['completed', 'missed', 'rejected', 'expired', 'cancelled', 'archived'],
 };
 
 function isQueuedReferral(referral) {
@@ -126,7 +127,7 @@ function needsReferralReview(referral) {
 }
 
 function canArchiveReferral(referral) {
-  return ['completed', 'missed', 'rejected', 'expired'].includes(referral.status);
+  return ['completed', 'missed', 'rejected', 'expired', 'cancelled'].includes(referral.status);
 }
 
 function formatAppointment(value) {
@@ -428,6 +429,7 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
             <ReferralTable
               referrals={filteredReferrals}
               totalCount={referrals.length}
+              archivableCount={referrals.filter((referral) => canArchiveReferral(referral)).length}
               onRefresh={onRefresh}
               canReview={canReview}
               canTransfer
@@ -1151,9 +1153,10 @@ function ReferralRecordCard({
   );
 }
 
-function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup, onShowAll }) {
+function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup, onShowAll }) {
   const confirm = useConfirm();
   const [reviewing, setReviewing] = useState(null);
+  const [archivingAll, setArchivingAll] = useState(false);
   const [reviewMode, setReviewMode] = useState('review');
   const [actionError, setActionError] = useState('');
   const [actingId, setActingId] = useState(null);
@@ -1303,18 +1306,51 @@ function ReferralTable({ referrals, totalCount, onRefresh, canReview, canTransfe
     }
   }
 
-  const isActing = (id) => actingId === id;
+  async function archiveFinished() {
+    const confirmed = await confirm({
+      title: 'Archive all finished referrals?',
+      message: 'This archives completed, missed, rejected, expired, and cancelled referrals. Referrals still waiting for review or still in the queue stay as they are.',
+      confirmLabel: 'Archive finished',
+    });
+    if (!confirmed) return;
+
+    setActionError('');
+    setArchivingAll(true);
+    try {
+      await api('/referrals/archive-finished', { method: 'POST' });
+      await onRefresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setArchivingAll(false);
+    }
+  }
+
+  const isActing = (id) => actingId === id || archivingAll;
   const groupCopy = {
     all: { title: 'All referrals', detail: 'Newest referrals first. Use search or priority to narrow the list.' },
     pending: { title: 'Needs review', detail: 'These referrals are submitted and still need a decision.' },
     active: { title: 'In queue', detail: 'These referrals are approved and waiting for their appointment.' },
-    closed: { title: 'Closed', detail: 'Completed, missed, rejected, or cancelled referrals.' },
+    closed: { title: 'Closed', detail: 'Completed, missed, rejected, expired, cancelled, or archived referrals.' },
   }[statusGroup] || { title: 'Referrals', detail: 'Filtered referrals.' };
   const hasNarrowingFilters = Boolean(filters.q || filters.status || filters.priority_level);
 
   return (
     <Card title={groupCopy.title} icon={ListChecks}>
-      <p className="mb-4 text-sm text-slate-500">{groupCopy.detail}</p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">{groupCopy.detail}</p>
+        {canReview && archivableCount > 0 ? (
+          <button
+            type="button"
+            onClick={archiveFinished}
+            disabled={archivingAll}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Archive className="h-4 w-4" />
+            Archive all finished
+          </button>
+        ) : null}
+      </div>
 
       <div className="mb-4">
         <ReferralFilters filters={filters} setFilters={setFilters} />
