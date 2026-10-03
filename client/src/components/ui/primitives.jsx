@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { classNames } from '../helpers';
@@ -181,17 +181,28 @@ export function FloatingActionMenu({
   const menuRef = useRef(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open || !triggerRef.current) return undefined;
 
     function updatePosition() {
-      const rect = triggerRef.current.getBoundingClientRect();
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
       const menuWidth = menuRef.current?.offsetWidth || 176;
-      const left = align === 'right' ? rect.right - menuWidth : rect.left;
+      const menuHeight = menuRef.current?.offsetHeight || 220;
+      const gap = 6;
+      const margin = 8;
+      const spaceBelow = window.innerHeight - rect.bottom - margin;
+      const spaceAbove = rect.top - margin;
+      const openUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+      const top = openUp
+        ? Math.max(margin, rect.top - gap - menuHeight)
+        : Math.min(rect.bottom + gap, Math.max(margin, window.innerHeight - menuHeight - margin));
+      const preferredLeft = align === 'right' ? rect.right - menuWidth : rect.left;
 
       setPosition({
-        top: rect.bottom + 6,
-        left: Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8)),
+        top,
+        left: Math.max(margin, Math.min(preferredLeft, window.innerWidth - menuWidth - margin)),
       });
     }
 
@@ -256,7 +267,7 @@ export function FloatingActionMenu({
         <div
           ref={menuRef}
           role="menu"
-          className="fixed z-[200] min-w-[11rem] rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
+          className="fixed z-[200] max-h-[min(20rem,calc(100vh-1rem))] min-w-[11rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
           style={{ top: position.top, left: position.left }}
         >
           {children({ close })}
