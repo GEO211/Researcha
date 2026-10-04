@@ -6,9 +6,9 @@ import { MotionItem, MotionReveal, MotionStagger, easeOut, fadeUp, popUp } from 
 const MotionDiv = motion.div;
 const MotionTr = motion.tr;
 
-export function PageStack({ children, className = 'space-y-5', stagger = 0.1 }) {
+export function PageStack({ children, className = 'space-y-5', stagger = 0.1, replay = false }) {
   return (
-    <MotionStagger className={className} stagger={stagger}>
+    <MotionStagger className={className} stagger={stagger} replay={replay}>
       {children}
     </MotionStagger>
   );

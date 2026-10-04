@@ -1192,16 +1192,72 @@ export async function createAuditLog(data) {
   return row.id;
 }
 
+function auditValues(value) {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof value === 'object' ? value : {};
+}
+
+function personName(row) {
+  if (!row) return '';
+  return [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ');
+}
+
+function auditRecordLabel(log, maps) {
+  const id = Number(log.auditable_id);
+  const values = auditValues(log.new_values);
+  if (log.auditable_type === 'patient') return maps.patients.get(id) || (id ? `Patient #${id}` : 'Patient');
+  if (log.auditable_type === 'user') return maps.users.get(id)?.name || (id ? `Account #${id}` : 'Account');
+  if (log.auditable_type === 'health_center') return maps.centers.get(id) || values.name || (id ? `Health center #${id}` : 'Health center');
+  if (log.auditable_type === 'referral') {
+    if (!id) return values.count ? `${values.count} finished referrals` : 'Referrals';
+    return maps.referrals.get(id) || `Referral #${id}`;
+  }
+  if (log.auditable_type === 'queue_entry') return id ? `Queue #${id}` : 'Queue';
+  if (log.auditable_type === 'sms_log') return 'SMS logs';
+  return log.auditable_type ? String(log.auditable_type).replaceAll('_', ' ') : '—';
+}
+
+function auditDetailText(log) {
+  const values = auditValues(log.new_values);
+  if (values.reason && values.note) return `${values.reason} — ${values.note}`;
+  if (values.reason) return values.reason;
+  if (values.from_center && values.to_center) return `${values.from_center} to ${values.to_center}`;
+  if (log.action === 'sms.logs_cleared') return `${values.removed || 0} messages cleared`;
+  if (log.action === 'referral.archive_finished') return `${values.count || 0} finished referrals archived`;
+  if (values.rejection_reason) return values.rejection_reason;
+  if (log.action === 'patient.restored') return 'Record is active again';
+  return '';
+}
+
 export async function listAuditLogs(filters = {}) {
-  const [logs, users] = await Promise.all([
+  const [logs, users, patients, centers, referrals] = await Promise.all([
     select(`SELECT * FROM ${TABLES.auditLogs}`),
     getUserMap(),
+    select(`SELECT id, first_name, middle_name, last_name FROM ${TABLES.patients}`),
+    select(`SELECT id, name FROM ${TABLES.healthCenters}`),
+    select(`SELECT id, referral_code FROM ${TABLES.referrals}`),
   ]);
+  const maps = {
+    users,
+    patients: new Map(patients.map((row) => [Number(row.id), personName(row)])),
+    centers: new Map(centers.map((row) => [Number(row.id), row.name])),
+    referrals: new Map(referrals.map((row) => [Number(row.id), row.referral_code])),
+  };
 
   let rows = logs.map((log) => ({
     ...log,
     user_name: log.user_id ? users.get(Number(log.user_id))?.name : null,
     user_email: log.user_id ? users.get(Number(log.user_id))?.email : null,
+    record_label: auditRecordLabel(log, maps),
+    detail: auditDetailText(log),
   }));
 
   if (filters.action) rows = rows.filter((l) => matchesSearch(l.action, filters.action));

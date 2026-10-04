@@ -20,7 +20,7 @@ import { normalizePhMobile } from '../lib/patientValidation';
 
 export default function Admin({ section = 'users', users, patients = [], healthCenters, smsLogs, emailLogs, auditLogs, onRefresh }) {
   return (
-    <PageStack>
+    <PageStack replay>
       <PageBlock>
         {section === 'patients' ? <PatientDirectory patients={patients} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
         {section === 'users' ? <UserManagement users={users} healthCenters={healthCenters} onRefresh={onRefresh} /> : null}
@@ -690,11 +690,28 @@ function auditActionLabel(value) {
 }
 
 function auditDetail(log) {
+  if (log?.detail) return log.detail;
   const values = log?.new_values && typeof log.new_values === 'object' ? log.new_values : null;
   if (!values) return '';
   const reason = values.reason || '';
   const note = values.note || '';
-  return [reason, note].filter(Boolean).join(' — ');
+  if (reason || note) return [reason, note].filter(Boolean).join(' — ');
+  if (values.from_center && values.to_center) return `${values.from_center} to ${values.to_center}`;
+  return '';
+}
+
+const AUDIT_GROUPS = [
+  { id: 'all', label: 'All' },
+  { id: 'patient', label: 'Patients' },
+  { id: 'referral', label: 'Referrals' },
+  { id: 'user', label: 'Accounts' },
+  { id: 'health_center', label: 'Centers' },
+  { id: 'auth.login', label: 'Sign-ins' },
+];
+
+function auditGroup(log) {
+  if (log.action === 'auth.login') return 'auth.login';
+  return log.auditable_type || '';
 }
 
 function auditEntityLabel(log) {
@@ -707,6 +724,7 @@ function auditEntityLabel(log) {
     priority_rule: 'Priority rule',
     queue_entry: 'Queue',
   }[log.auditable_type] || String(log.auditable_type || '—').replaceAll('_', ' ');
+  if (log.record_label) return log.record_label;
   if (!log.auditable_id) return type;
   return `${type} #${log.auditable_id}`;
 }
@@ -723,12 +741,47 @@ function auditAccount(log, users) {
 }
 
 function AuditLogsPanel({ rows, users }) {
-  const logs = rows || [];
+  const [group, setGroup] = useState('all');
+  const [query, setQuery] = useState('');
+  const logs = (rows || []).filter((log) => {
+    if (group !== 'all' && auditGroup(log) !== group) return false;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    const account = auditAccount(log, users);
+    return [account.name, account.email, auditActionLabel(log.action), auditEntityLabel(log), auditDetail(log)]
+      .some((value) => String(value || '').toLowerCase().includes(needle));
+  });
+  const counts = AUDIT_GROUPS.map((item) => ({
+    ...item,
+    count: item.id === 'all'
+      ? (rows || []).length
+      : (rows || []).filter((log) => auditGroup(log) === item.id).length,
+  }));
+
   return (
     <Card title="Audit Logs" icon={ClipboardList}>
-      <p className="mb-4 text-sm text-slate-500">{logs.length} record{logs.length === 1 ? '' : 's'}</p>
+      <p className="mb-4 text-sm text-slate-500">Who did what, with the time and the record that changed.</p>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {counts.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setGroup(item.id)}
+            className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${group === item.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            {item.label}
+            <span className={`rounded-full px-1.5 py-0.5 text-[11px] ${group === item.id ? 'bg-white/15 text-white' : 'bg-white text-slate-500'}`}>{item.count}</span>
+          </button>
+        ))}
+      </div>
+      <label className="mb-4 block max-w-md">
+        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Search</span>
+        <TextInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, action, or record" />
+      </label>
       {logs.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">No audit records yet.</p>
+        <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+          {(rows || []).length === 0 ? 'No audit records yet.' : 'No audit records match this view.'}
+        </p>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">
           <div className="overflow-x-auto">
