@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../src/config/db.js';
+import { calculateQueuePriority } from '../../shared/queuePriority.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
@@ -124,23 +125,6 @@ function queuePrefix(priorityLevel) {
   return 'S';
 }
 
-function scoreReferral({ urgency, referralType, severity, isSenior, isPregnant, isPwd }) {
-  let score = 0;
-  score += { emergency: 100, urgent: 60, routine: 20 }[urgency] || 20;
-  score += { emergency: 50, specialist_consultation: 30, follow_up: 15, routine: 5 }[referralType] || 5;
-  score += { low: 5, moderate: 15, high: 35, critical: 60 }[severity] || 15;
-  if (isSenior) score += 25;
-  if (isPregnant) score += 25;
-  if (isPwd) score += 25;
-  return score;
-}
-
-function priorityFromScore(score) {
-  if (score >= 100) return 'priority_1_emergency';
-  if (score >= 50) return 'priority_2_vulnerable';
-  return 'priority_3_standard';
-}
-
 async function ensureBarangayCenters() {
   const existing = await pool.query('SELECT id, name FROM health_centers WHERE type = $1 ORDER BY id', ['barangay']);
   const byName = new Map(existing.rows.map((row) => [row.name, row.id]));
@@ -251,15 +235,10 @@ async function insertReferralsAndQueues(patients, cityId, count) {
       const referralType = urgency === 'emergency' ? 'emergency' : randomItem(REFERRAL_TYPES);
       const severity = urgency === 'emergency' ? randomItem(['high', 'critical']) : randomItem(SEVERITIES);
       const status = randomItem(STATUSES);
-      const score = scoreReferral({
-        urgency,
-        referralType,
+      const priority = calculateQueuePriority({
         severity,
-        isSenior: patient.is_senior,
-        isPregnant: patient.is_pregnant,
-        isPwd: patient.is_pwd,
+        patient,
       });
-      const priorityLevel = priorityFromScore(score);
       const appointmentAt = new Date(createdAt.getTime() + 24 * 60 * 60 * 1000);
       const reviewedAt = ['rejected', 'queued', 'completed', 'missed', 'archived', 'expired'].includes(status)
         ? new Date(createdAt.getTime() + 2 * 60 * 60 * 1000)
@@ -285,8 +264,14 @@ async function insertReferralsAndQueues(patients, cityId, count) {
         reviewed_at: reviewedAt?.toISOString() || null,
         completed_at: completedAt?.toISOString() || null,
         created_at: createdAt.toISOString(),
-        priority_level: priorityLevel,
-        priority_score: score,
+        priority_level: priority.legacyPriorityLevel,
+        priority_score: priority.score,
+        priority_band: priority.priorityLevel,
+        severity_rank: priority.severityRank,
+        severity_score: priority.severityScore,
+        vulnerability_score: priority.vulnerabilityScore,
+        vulnerability_count: priority.vulnerabilityCount,
+        priority_reasons: priority.reasons,
       });
     }
 
@@ -348,13 +333,19 @@ async function insertReferralsAndQueues(patients, cityId, count) {
       }[referral.status];
 
       const o = queueParams.length;
-      queueValues.push(`($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9},$${o + 10},$${o + 11},$${o + 12})`);
+      queueValues.push(`($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9},$${o + 10},$${o + 11},$${o + 12},$${o + 13},$${o + 14},$${o + 15},$${o + 16},$${o + 17},$${o + 18})`);
       queueParams.push(
         referral.id,
         referral.patient_id,
         `${queuePrefix(source.priority_level)}-${String(next).padStart(3, '0')}`,
         source.priority_level,
         source.priority_score,
+        source.priority_band,
+        source.severity_rank,
+        source.severity_score,
+        source.vulnerability_score,
+        source.vulnerability_count,
+        JSON.stringify(source.priority_reasons),
         queueStatus,
         queueDate,
         queueStatus === 'served' || queueStatus === 'missed' ? referral.appointment_at : null,
@@ -369,7 +360,9 @@ async function insertReferralsAndQueues(patients, cityId, count) {
       await pool.query(
         `INSERT INTO queue_entries (
            referral_id, patient_id, queue_number, priority_level, priority_score,
-           queue_status, queue_date, called_at, served_at, missed_at, created_at, updated_at
+           priority_band, severity_rank, severity_score, vulnerability_score,
+           vulnerability_count, priority_reasons, queue_status, queue_date,
+           called_at, served_at, missed_at, created_at, updated_at
          ) VALUES ${queueValues.join(',')}`,
         queueParams,
       );

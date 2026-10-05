@@ -27,6 +27,7 @@ export function SearchableSelect({
   disabled = false,
   className,
   name,
+  allowNumbers = true,
 }) {
   const listId = useId();
   const rootRef = useRef(null);
@@ -146,7 +147,12 @@ export function SearchableSelect({
             ref={searchRef}
             type="text"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => setQuery(allowNumbers ? event.target.value : event.target.value.replace(/\d/g, ''))}
+            onKeyDown={(event) => {
+              if (!allowNumbers && /^\d$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                event.preventDefault();
+              }
+            }}
             placeholder={searchPlaceholder}
             className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
           />

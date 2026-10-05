@@ -666,6 +666,7 @@ function auditActionLabel(value) {
     'referral.archive_finished': 'Archived finished referrals',
     'referral.submitted': 'Submitted referral',
     'referral.transferred': 'Transferred checkup',
+    'referral.priority_updated': 'Updated queue priority',
     'referral.under_review': 'Moved referral to review',
     'referral.approved': 'Approved referral',
     'referral.rejected': 'Rejected referral',

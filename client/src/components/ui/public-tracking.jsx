@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   AnimatePresence,
   motion,
@@ -11,6 +11,7 @@ import {
   Bell,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   HeartPulse,
   Search,
@@ -97,6 +98,150 @@ function trackingStatusBannerClass(result) {
 
 function trackingQueueLabel(result) {
   return result.queue_number || (result.is_expired ? 'Queue expired' : 'Not assigned');
+}
+
+function prettyTrackValue(value) {
+  if (!value) return '—';
+  return String(value).replaceAll('_', ' ');
+}
+
+function TrackingResultCard({ result, compact = false }) {
+  const [open, setOpen] = useState(true);
+  const reasons = Array.isArray(result.priority_reasons) ? result.priority_reasons : [];
+  const classifications = Array.isArray(result.classifications) && result.classifications.length
+    ? result.classifications.join(', ')
+    : 'Standard';
+
+  const summaryRows = [
+    { icon: HeartPulse, label: 'Patient', value: result.patient_name },
+    { icon: Shield, label: 'Receiving center', value: result.receiving_center_name },
+    {
+      icon: CalendarClock,
+      label: 'Appointment',
+      value: result.appointment_time
+        ? new Date(result.appointment_time).toLocaleString()
+        : 'Not scheduled',
+    },
+    {
+      icon: Bell,
+      label: 'Queue number',
+      value: trackingQueueLabel(result),
+    },
+    {
+      icon: Activity,
+      label: 'Queue position',
+      value: result.queue_position
+        ? `#${result.queue_position} in line${result.people_ahead != null ? ` · ${result.people_ahead} ahead` : ''}`
+        : 'Not in active queue',
+    },
+    {
+      icon: Shield,
+      label: 'Priority',
+      value: result.priority_band || result.priority_level
+        ? `${prettyTrackValue(result.priority_band || result.priority_level)}${result.priority_score != null ? ` · Score ${result.priority_score}` : ''}`
+        : 'Not assigned',
+    },
+  ];
+
+  const extraRows = [
+    { label: 'Referring center', value: result.referring_center_name },
+    { label: 'Checkup barangay', value: result.checkup_barangay },
+    { label: 'Severity', value: prettyTrackValue(result.severity_level) },
+    { label: 'Urgency', value: prettyTrackValue(result.clinical_urgency) },
+    { label: 'Referral type', value: prettyTrackValue(result.referral_type) },
+    { label: 'Classifications', value: classifications },
+    { label: 'Queue date', value: result.queue_date ? String(result.queue_date).slice(0, 10) : '—' },
+    { label: 'Reason', value: result.referral_reason },
+  ].filter((row) => row.value && row.value !== '—');
+
+  return (
+    <div className={cn('mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md', compact && 'max-h-[32rem] overflow-y-auto')}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="relative w-full overflow-hidden border-b border-slate-100 bg-gradient-to-r from-cyan-50/90 via-white to-teal-50/50 px-4 py-3.5 text-left transition hover:from-cyan-100/80"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="font-mono text-sm font-bold tracking-tight text-slate-950">
+                {result.tracking_code}
+              </h3>
+              <StatusBadge value={result.display_status || result.status} />
+            </div>
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+              <Sparkles className="h-3 w-3 text-cyan-600" />
+              {result.status_subtitle || result.patient_name || 'Referral found'}
+            </p>
+          </div>
+          <ChevronDown className={cn('mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
+        </div>
+      </button>
+
+      {result.status_message ? (
+        <div className={cn('border-b px-4 py-2.5 text-xs', trackingStatusBannerClass(result))}>
+          {result.status_message}
+        </div>
+      ) : null}
+
+      {open ? (
+        <>
+          <MotionStagger
+            className={cn('grid gap-2 p-3', compact ? 'grid-cols-1' : 'sm:grid-cols-2')}
+            stagger={0.06}
+            delayChildren={0.15}
+          >
+            {summaryRows.map((row) => {
+              const DetailIcon = row.icon;
+              return (
+                <MotionItem key={row.label} variant={popUp}>
+                  <div className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
+                    <div className="rounded-lg bg-white p-1.5 text-cyan-700 shadow-sm ring-1 ring-slate-200/60">
+                      <DetailIcon className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.label}</p>
+                      <p className="mt-0.5 text-xs font-semibold text-slate-900">{row.value}</p>
+                    </div>
+                  </div>
+                </MotionItem>
+              );
+            })}
+          </MotionStagger>
+
+          {extraRows.length ? (
+            <dl className="grid gap-2 border-t border-slate-100 px-3 py-3 sm:grid-cols-2">
+              {extraRows.map((row) => (
+                <div key={row.label} className={row.label === 'Reason' ? 'sm:col-span-2' : undefined}>
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.label}</dt>
+                  <dd className="mt-0.5 text-xs font-medium text-slate-800">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+
+          {reasons.length ? (
+            <div className="flex flex-wrap gap-1.5 px-3 pb-3">
+              {reasons.map((reason) => (
+                <span key={reason} className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200">
+                  {reason}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="px-3 pb-3">
+            <TrackingProgress
+              status={result.display_status || result.status}
+              result={result}
+            />
+          </div>
+        </>
+      ) : (
+        <p className="px-4 py-3 text-xs text-slate-500">Tap to show patient, referral, and queue details.</p>
+      )}
+    </div>
+  );
 }
 
 function MeshOrb({ className, color, size = 400 }) {
@@ -352,83 +497,8 @@ export function PublicTrackingPanel({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.98, y: 8 }}
               transition={{ duration: 0.45, ease: easeOut }}
-              className={cn('mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md', compact && 'max-h-[28rem] overflow-y-auto')}
             >
-              <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-r from-cyan-50/90 via-white to-teal-50/50 px-4 py-3.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-mono text-sm font-bold tracking-tight text-slate-950">
-                    {trackResult.tracking_code}
-                  </h3>
-                  <StatusBadge value={trackResult.display_status || trackResult.status} />
-                </div>
-                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
-                  <Sparkles className="h-3 w-3 text-cyan-600" />
-                  {trackResult.status_subtitle || 'Referral found'}
-                </p>
-              </div>
-
-              {trackResult.status_message ? (
-                <div className={cn('border-b px-4 py-2.5 text-xs', trackingStatusBannerClass(trackResult))}>
-                  {trackResult.status_message}
-                </div>
-              ) : null}
-
-              <MotionStagger
-                className={cn('grid gap-2 p-3', compact ? 'grid-cols-1' : 'sm:grid-cols-2')}
-                stagger={0.06}
-                delayChildren={0.15}
-              >
-                {[
-                  { icon: HeartPulse, label: 'Patient', value: trackResult.patient_name },
-                  { icon: Shield, label: 'Receiving center', value: trackResult.receiving_center_name },
-                  {
-                    icon: CalendarClock,
-                    label: 'Appointment',
-                    value: trackResult.appointment_time
-                      ? new Date(trackResult.appointment_time).toLocaleString()
-                      : 'Not scheduled',
-                  },
-                  {
-                    icon: Bell,
-                    label: 'Queue number',
-                    value: trackingQueueLabel(trackResult),
-                  },
-                  {
-                    icon: Activity,
-                    label: 'Queue position',
-                    value: trackResult.queue_position ? `#${trackResult.queue_position} in line` : 'Not in active queue',
-                  },
-                  {
-                    icon: Shield,
-                    label: 'Priority',
-                    value: trackResult.priority_level
-                      ? String(trackResult.priority_level).replaceAll('_', ' ')
-                      : 'Not assigned',
-                  },
-                ].map((row) => {
-                  const DetailIcon = row.icon;
-                  return (
-                    <MotionItem key={row.label} variant={popUp}>
-                      <div className="flex items-start gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-2.5">
-                        <div className="rounded-lg bg-white p-1.5 text-cyan-700 shadow-sm ring-1 ring-slate-200/60">
-                          <DetailIcon className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{row.label}</p>
-                          <p className="mt-0.5 text-xs font-semibold text-slate-900">{row.value}</p>
-                        </div>
-                      </div>
-                    </MotionItem>
-                  );
-                })}
-              </MotionStagger>
-
-              <div className="px-3 pb-3">
-                <TrackingProgress
-                  status={trackResult.display_status || trackResult.status}
-                  result={trackResult}
-                />
-              </div>
+              <TrackingResultCard result={trackResult} compact={compact} />
             </MotionDiv>
           ) : (
             <MotionDiv

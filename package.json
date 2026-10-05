@@ -2,6 +2,7 @@
   "name": "carelink",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "CareLink smart health referral system with automated queue prioritization.",
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",

@@ -1,10 +1,5 @@
 import { query, queryOne } from './query.js';
-
-const PRIORITY_ORDER = {
-  priority_1_emergency: 0,
-  priority_2_vulnerable: 1,
-  priority_3_standard: 2,
-};
+import { compareQueuePriority } from '../../../../shared/queuePriority.js';
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Manila';
 
@@ -70,10 +65,7 @@ export function toDateString(value) {
 }
 
 export function sortByPriority(a, b) {
-  const levelDiff = (PRIORITY_ORDER[a.priority_level] ?? 99) - (PRIORITY_ORDER[b.priority_level] ?? 99);
-  if (levelDiff !== 0) return levelDiff;
-  if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
-  return new Date(a.created_at) - new Date(b.created_at);
+  return compareQueuePriority(a, b);
 }
 
 export function matchesSearch(text, q) {

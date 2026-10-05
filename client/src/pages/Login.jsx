@@ -166,7 +166,7 @@ export default function Login({ onLogin, onBack }) {
                       <TextInput value={trackingCode} onChange={(event) => setTrackingCode(event.target.value)} placeholder="Referral / tracking code" aria-invalid={Boolean(fieldErrors.tracking_code)} required />
                     </Field>
                     <Field label="Last name" error={fieldErrors.last_name}>
-                      <TextInput value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder="Must match the patient record" aria-invalid={Boolean(fieldErrors.last_name)} required />
+                      <TextInput allowNumbers={false} value={lastName} onChange={(event) => setLastName(event.target.value)} placeholder="Must match the patient record" aria-invalid={Boolean(fieldErrors.last_name)} required />
                     </Field>
                   </>
                 )}
@@ -191,7 +191,7 @@ export default function Login({ onLogin, onBack }) {
             <MotionHeroItem variant={popUp}>
               <MotionDiv whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                 <PrimaryButton disabled={loading} className="mt-6 w-full">
-                  {loading ? 'Signing in...' : portal === 'patient' ? 'View my care status' : 'Sign in'}
+                  {loading ? 'Signing in...' : portal === 'patient' ? 'View my queue' : 'Sign in'}
                 </PrimaryButton>
               </MotionDiv>
             </MotionHeroItem>

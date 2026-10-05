@@ -7,6 +7,7 @@ import {
   getReferral,
   listQueueEntries,
   listTodayQueue,
+  recalculateQueuePriorities,
 } from '../lib/supabase/store.js';
 import { queueCallCooldownSeconds } from '../lib/supabase/helpers.js';
 import { audit } from '../services/auditService.js';
@@ -16,7 +17,7 @@ import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
 
-router.get('/', authenticate, authorize(PERMISSIONS.QUEUE_VIEW, PERMISSIONS.TRACKING_OWN), async (req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.QUEUE_VIEW), async (req, res, next) => {
   try {
     const receivingHealthCenterId = req.user.role === 'barangay_staff'
       ? req.user.health_center_id
@@ -32,14 +33,11 @@ router.get('/', authenticate, authorize(PERMISSIONS.QUEUE_VIEW, PERMISSIONS.TRAC
 
     if (!hasFilters) {
       const queue = await listTodayQueue({ receivingHealthCenterId });
-      const scoped = req.user.role === 'patient'
-        ? queue.filter((entry) => Number(entry.patient_id) === Number(req.user.patient_id))
-        : queue;
       return res.json({
-        queue: scoped,
+        queue,
         meta: {
           range: 'today',
-          total: scoped.length,
+          total: queue.length,
           data_source: 'supabase',
           synced_with: 'referrals',
         },
@@ -55,9 +53,6 @@ router.get('/', authenticate, authorize(PERMISSIONS.QUEUE_VIEW, PERMISSIONS.TRAC
       q: req.query.q,
       receivingHealthCenterId,
     });
-    if (req.user.role === 'patient') {
-      result.queue = (result.queue || []).filter((entry) => Number(entry.patient_id) === Number(req.user.patient_id));
-    }
     return res.json(result);
   } catch (error) {
     next(error);
@@ -92,6 +87,7 @@ router.post('/:id/call', authenticate, authorize(PERMISSIONS.QUEUE_CALL), async 
       });
     }
 
+    await recalculateQueuePriorities({ referralId: entry.referral_id });
     const updated = await callQueueEntry(id);
     if (!updated) {
       return res.status(409).json({ message: 'Unable to call this patient right now.' });

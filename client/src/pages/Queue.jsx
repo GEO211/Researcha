@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import { api } from '../api';
-import { classNames, priorityLabel } from '../components/helpers';
+import { classNames } from '../components/helpers';
 import {
   AnimatedTableRow,
   Card,
@@ -49,13 +49,15 @@ const REFERRAL_STATUS_OPTIONS = [
 
 const PRIORITY_OPTIONS = [
   { value: 'all', label: 'All priorities' },
-  { value: 'priority_1_emergency', label: 'Emergency' },
-  { value: 'priority_2_vulnerable', label: 'Vulnerable' },
-  { value: 'priority_3_standard', label: 'Standard' },
+  { value: 'critical', label: 'Critical priority' },
+  { value: 'high', label: 'High priority' },
+  { value: 'medium', label: 'Medium priority' },
+  { value: 'normal', label: 'Normal priority' },
 ];
 
 const referralStatusOptions = toSearchableOptions(REFERRAL_STATUS_OPTIONS);
 const priorityOptions = toSearchableOptions(PRIORITY_OPTIONS);
+const INITIAL_NOW = Date.now();
 
 function queuePatientName(entry) {
   if (entry.patient_name) return entry.patient_name;
@@ -65,6 +67,28 @@ function queuePatientName(entry) {
 
 function queueStatus(entry) {
   return entry.status || entry.queue_status || 'unknown';
+}
+
+function priorityBandLabel(value) {
+  return {
+    critical: 'Critical priority',
+    high: 'High priority',
+    medium: 'Medium priority',
+    normal: 'Normal priority',
+  }[value] || 'Normal priority';
+}
+
+function priorityReasons(entry) {
+  if (Array.isArray(entry.priority_reasons)) return entry.priority_reasons;
+  if (typeof entry.priority_reasons === 'string') {
+    try {
+      const parsed = JSON.parse(entry.priority_reasons);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function canCallPatient(entry) {
@@ -119,14 +143,15 @@ function queueSummary(range, rows) {
   return `${period}. ${rows.length} visit${rows.length === 1 ? '' : 's'}: ${detail}.`;
 }
 
-export default function Queue({ onRefresh }) {
+export default function Queue({ user, onRefresh }) {
   const confirm = useConfirm();
   const [queue, setQueue] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [callingId, setCallingId] = useState(null);
-  const [now, setNow] = useState(Date.now());
+  const [updatingSeverityId, setUpdatingSeverityId] = useState(null);
+  const [now, setNow] = useState(INITIAL_NOW);
   const [view, setView] = useState('all');
   const [filters, setFilters] = useState({
     range: 'today',
@@ -191,6 +216,25 @@ export default function Queue({ onRefresh }) {
       setError(err.message);
     } finally {
       setCallingId(null);
+    }
+  }
+
+  async function updateSeverity(entry, severityLevel) {
+    setError('');
+    setSuccess('');
+    setUpdatingSeverityId(entry.id);
+    try {
+      await api(`/referrals/${entry.referral_id}/priority`, {
+        method: 'PATCH',
+        body: JSON.stringify({ severity_level: severityLevel }),
+      });
+      setSuccess(`Queue priority updated for ${queuePatientName(entry)}.`);
+      await loadQueue();
+      if (onRefresh) await onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUpdatingSeverityId(null);
     }
   }
 
@@ -337,7 +381,7 @@ export default function Queue({ onRefresh }) {
                 <thead className="border-y border-slate-100 text-xs font-medium uppercase tracking-wide text-slate-400">
                   <tr>
                     <th className="px-3 py-2 font-medium">Date</th>
-                    <th className="px-3 py-2 font-medium">Queue</th>
+                    <th className="px-3 py-2 font-medium">Position / Queue</th>
                     <th className="px-3 py-2 font-medium">Patient</th>
                     <th className="px-3 py-2 font-medium">Home barangay</th>
                     <th className="px-3 py-2 font-medium">Checkup</th>
@@ -351,17 +395,52 @@ export default function Queue({ onRefresh }) {
                 <tbody>
                   {visibleQueue.map((entry, index) => {
                     const callable = canCallPatient(entry);
+                    const activePriority = ['waiting', 'called'].includes(queueStatus(entry));
                     const cooldown = callCooldownSeconds(entry.called_at, now);
                     const isCalling = callingId === entry.id;
 
                     return (
                       <AnimatedTableRow key={entry.id} index={index}>
                         <td className="px-3 py-3 text-slate-700">{formatQueueDate(entry.queue_date)}</td>
-                        <td className="px-3 py-3 font-medium text-slate-900">{entry.queue_number}</td>
+                        <td className="px-3 py-3">
+                          {entry.queue_position ? (
+                            <p className="text-base font-semibold text-slate-950">#{entry.queue_position}</p>
+                          ) : null}
+                          <p className="font-mono text-xs text-slate-500">{entry.queue_number || '—'}</p>
+                        </td>
                         <td className="px-3 py-3 font-medium text-slate-900">{queuePatientName(entry)}</td>
                         <td className="px-3 py-3 text-slate-600">{entry.home_barangay || '—'}</td>
                         <td className="px-3 py-3 text-slate-600">{entry.checkup_location || entry.receiving_center_name || '—'}</td>
-                        <td className="px-3 py-3 text-slate-700">{priorityLabel(entry.priority_level)}</td>
+                        <td className="max-w-[260px] px-3 py-3 align-top">
+                          {activePriority ? (
+                            <>
+                              <p className="font-semibold text-slate-900">{priorityBandLabel(entry.priority_band)}</p>
+                              <p className="mt-0.5 text-xs text-slate-600">
+                                {String(entry.severity_level || 'moderate').toUpperCase()} · Score {entry.priority_score ?? 0}
+                              </p>
+                              {priorityReasons(entry).length ? (
+                                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                                  {priorityReasons(entry).join(' · ')}
+                                </p>
+                              ) : null}
+                            </>
+                          ) : (
+                            <p className="text-xs font-medium text-slate-500">Not in waiting queue</p>
+                          )}
+                          {user?.role === 'city_staff' && callable ? (
+                            <select
+                              aria-label={`Severity for ${queuePatientName(entry)}`}
+                              value={entry.severity_level || 'moderate'}
+                              disabled={updatingSeverityId === entry.id}
+                              onChange={(event) => updateSeverity(entry, event.target.value)}
+                              className="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none focus:border-cyan-500"
+                            >
+                              <option value="low">Low severity</option>
+                              <option value="moderate">Moderate severity</option>
+                              <option value="high">High severity</option>
+                            </select>
+                          ) : null}
+                        </td>
                         <td className="px-3 py-3"><StatusBadge value={queueStatus(entry)} /></td>
                         <td className="px-3 py-3"><StatusBadge value={entry.referral_status || 'unknown'} /></td>
                         <td className="px-3 py-3 font-mono text-xs text-slate-500">{entry.referral_code || '—'}</td>

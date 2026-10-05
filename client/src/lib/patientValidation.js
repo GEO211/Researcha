@@ -39,7 +39,7 @@ export function normalizePhMobile(value) {
   return digits ? `+${digits}` : null;
 }
 
-function ageFromBirthDate(isoDate, now = new Date()) {
+export function ageFromBirthDate(isoDate, now = new Date()) {
   const match = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   const birth = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
@@ -48,6 +48,17 @@ function ageFromBirthDate(isoDate, now = new Date()) {
   const monthDelta = now.getMonth() - birth.getMonth();
   if (monthDelta < 0 || (monthDelta === 0 && now.getDate() < birth.getDate())) age -= 1;
   return age;
+}
+
+export const AGE_CLASSIFICATION_KEYS = ['is_infant', 'is_child', 'is_senior'];
+
+export function classificationsFromBirthDate(birthDate) {
+  const age = ageFromBirthDate(String(birthDate || '').slice(0, 10));
+  return {
+    is_infant: age != null && age < 1,
+    is_child: age != null && age >= 1 && age < 18,
+    is_senior: age != null && age >= 60,
+  };
 }
 
 function setError(errors, key, message) {

@@ -2,10 +2,14 @@ import cron from 'node-cron';
 import { expirePastQueueEntries, findReferralsNeedingReminder } from '../lib/supabase/store.js';
 import { appointmentReminderMessage, resolvePatientDisplayName, sendSms } from './smsService.js';
 import { sendEmail } from './emailService.js';
+import { refreshScheduledForecasts } from './forecastService.js';
 
 export function startReminderScheduler() {
   expirePastQueueEntries().catch((error) => {
     console.error('[CareLink] Queue expiry failed:', error.message);
+  });
+  refreshScheduledForecasts().catch((error) => {
+    console.error('[CareLink] Forecast refresh failed:', error.message);
   });
 
   cron.schedule('*/5 * * * *', async () => {
@@ -47,5 +51,15 @@ export function startReminderScheduler() {
         });
       }
     }
+  });
+
+  cron.schedule('15 0 * * *', async () => {
+    try {
+      await refreshScheduledForecasts();
+    } catch (error) {
+      console.error('[CareLink] Forecast refresh failed:', error.message);
+    }
+  }, {
+    timezone: process.env.APP_TIMEZONE || 'Asia/Manila',
   });
 }

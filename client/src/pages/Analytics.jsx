@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity,
@@ -11,10 +11,12 @@ import {
   MessageSquare,
   Sparkles,
   Stethoscope,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import { api, downloadCsv } from '../api';
 import { classNames } from '../components/helpers';
+import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
   AnimatedGrid,
   AnimatedGridItem,
@@ -60,6 +62,12 @@ const categories = [
     description: 'Barangay hotspots, overloaded places, and most case types.',
     icon: BrainCircuit,
   },
+  {
+    id: 'forecast',
+    label: 'AI Patient Forecast',
+    description: 'Future patient volume, peak hours, severity mix, and queue demand.',
+    icon: TrendingUp,
+  },
 ];
 
 const exports = [
@@ -80,7 +88,7 @@ export default function Analytics({ analytics }) {
             <h2 className="text-lg font-semibold tracking-tight text-slate-950">Analytics</h2>
             <p className="text-sm text-slate-500">Live charts and reports from the CareLink database.</p>
           </div>
-          <AnimatedGrid className="grid gap-3 sm:grid-cols-2">
+          <AnimatedGrid className="grid gap-3 sm:grid-cols-3">
             {categories.map((category) => {
               const Icon = category.icon;
               const isActive = activeCategory === category.id;
@@ -126,11 +134,9 @@ export default function Analytics({ analytics }) {
 
       <PageBlock>
         <TabPanel panelKey={activeCategory}>
-          {activeCategory === 'reports' ? (
-            <ClinicReportsPanel analytics={analytics} />
-          ) : (
-            <AiIntelligencePanel />
-          )}
+          {activeCategory === 'reports' ? <ClinicReportsPanel analytics={analytics} /> : null}
+          {activeCategory === 'ai' ? <AiIntelligencePanel /> : null}
+          {activeCategory === 'forecast' ? <PatientForecastPanel /> : null}
         </TabPanel>
       </PageBlock>
     </PageStack>
@@ -290,7 +296,22 @@ function AiIntelligencePanel() {
   }
 
   useEffect(() => {
-    loadAiInsights();
+    let active = true;
+    api('/ai/insights')
+      .then((data) => {
+        if (active) setAiInsights(data);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setAiInsights(null);
+        setAiError(error.message || 'Unable to load AI insights.');
+      })
+      .finally(() => {
+        if (active) setAiLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const barangayRows = (aiInsights?.hotspots?.by_barangay || []).map((row) => ({
@@ -457,12 +478,12 @@ function shortPlaceLabel(value) {
     .trim() || 'Unknown';
 }
 
-function StatTile({ label, value, detail, icon: Icon, suffix = '' }) {
+function StatTile({ label, value, detail, icon, suffix = '' }) {
   return (
     <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm shadow-slate-200/50">
       <div className="mb-3 flex items-center gap-2">
         <span className="grid h-8 w-8 place-items-center rounded-xl bg-cyan-50 text-cyan-700">
-          <Icon className="h-4 w-4" />
+          {createElement(icon, { className: 'h-4 w-4' })}
         </span>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       </div>

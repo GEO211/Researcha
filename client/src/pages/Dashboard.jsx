@@ -10,10 +10,12 @@ import {
   MapPin,
   Sparkles,
   Stethoscope,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import { api } from '../api';
 import { classNames } from '../components/helpers';
+import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
   Card,
   CountUp,
@@ -44,11 +46,17 @@ const categories = [
     description: 'Most cases, barangay hotspots, and overloaded places.',
     icon: BrainCircuit,
   },
+  {
+    id: 'forecast',
+    label: 'Advanced AI Patient Forecasting',
+    description: 'Advanced AI patient-demand forecasting from historical registrations.',
+    icon: TrendingUp,
+  },
 ];
 
 export default function Dashboard({ summary, canUseAi = true }) {
   const [activeCategory, setActiveCategory] = useState('overview');
-  const visibleCategories = categories.filter((category) => category.id !== 'ai' || canUseAi);
+  const visibleCategories = categories.filter((category) => category.id === 'overview' || canUseAi);
   const todayLabel = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'long',
@@ -65,7 +73,7 @@ export default function Dashboard({ summary, canUseAi = true }) {
             <p className="mt-1 text-sm font-medium text-slate-700">{todayLabel}</p>
           </div>
           {visibleCategories.length > 1 ? (
-            <div className="inline-flex rounded-xl bg-slate-100 p-1">
+            <div className="inline-flex flex-wrap rounded-xl bg-slate-100 p-1">
               {visibleCategories.map((category) => {
                 const Icon = category.icon;
                 const isActive = activeCategory === category.id;
@@ -73,6 +81,7 @@ export default function Dashboard({ summary, canUseAi = true }) {
                   <button
                     key={category.id}
                     type="button"
+                    title={category.description}
                     onClick={() => setActiveCategory(category.id)}
                     className={classNames(
                       'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition',
@@ -93,6 +102,8 @@ export default function Dashboard({ summary, canUseAi = true }) {
         <TabPanel panelKey={canUseAi ? activeCategory : 'overview'}>
           {!canUseAi || activeCategory === 'overview' ? (
             <OverviewPanel summary={summary} />
+          ) : activeCategory === 'forecast' ? (
+            <PatientForecastPanel />
           ) : (
             <AiAnalyticsPanel />
           )}

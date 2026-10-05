@@ -12,9 +12,11 @@ import {
   transferPatient,
   updatePatient,
 } from '../lib/supabase/store.js';
+import { getPatientPortalProfile } from '../lib/supabase/patientPortalStore.js';
 import { duplicatePatientMessage, normalizePatientRecord, patientSchema } from '../lib/patientRules.js';
 import { barangayAddressLabel, findHealthCenterForBarangay, matchBarangayName } from '../data/koronadalBarangays.js';
 import { audit } from '../services/auditService.js';
+import { invalidateForecastCache } from '../services/forecastService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
@@ -92,6 +94,7 @@ router.post('/', authenticate, authorize(PERMISSIONS.PATIENTS_CREATE), async (re
     if (duplicate) return duplicateResponse(res, duplicate);
 
     const created = await createPatient(data);
+    invalidateForecastCache();
     await audit(req, 'patient.created', 'patient', created.id, null, data);
     res.status(201).json(created);
   } catch (error) {
@@ -108,8 +111,12 @@ router.get('/:id', authenticate, authorize(PERMISSIONS.PATIENTS_VIEW, PERMISSION
       return res.status(404).json({ message: 'Patient not found.' });
     }
 
-    if (req.user.role === 'patient' && Number(req.user.patient_id) !== id) {
-      return res.status(403).json({ message: 'You can only view your own patient record.' });
+    if (req.user.role === 'patient') {
+      if (Number(req.user.patient_id) !== id) {
+        return res.status(403).json({ message: 'You can only view your own patient record.' });
+      }
+      const profile = await getPatientPortalProfile(req.user);
+      return res.json({ patient: profile });
     }
 
     if (req.user.role === 'barangay_staff' && patient.health_center_id !== req.user.health_center_id) {
@@ -177,6 +184,7 @@ router.patch('/:id', authenticate, authorize(PERMISSIONS.PATIENTS_UPDATE), async
       ...editable
     } = nextPatient;
     const updated = await updatePatient(id, editable);
+    invalidateForecastCache();
     await audit(req, 'patient.updated', 'patient', id, existing, parsed);
     return res.json({ patient: updated });
   } catch (error) {

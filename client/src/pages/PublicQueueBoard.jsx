@@ -89,7 +89,7 @@ function QueueEntryCard({ entry, index, total }) {
           )}
         >
           <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">#</span>
-          <span className="text-xl leading-none">{entry.queue_position}</span>
+          <span className="text-xl leading-none">{entry.queue_position || '—'}</span>
         </div>
 
         <div className="min-w-0 flex-1">
@@ -105,15 +105,17 @@ function QueueEntryCard({ entry, index, total }) {
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             {entry.queue_status ? <StatusBadge value={entry.queue_status} /> : null}
-            {entry.priority_level ? (
-              <span className="text-xs font-medium text-slate-500">{priorityLabel(entry.priority_level)}</span>
+            {entry.priority_band || entry.priority_level ? (
+              <span className="text-xs font-medium text-slate-500">{priorityLabel(entry.priority_band || entry.priority_level)}</span>
             ) : null}
             {entry.checkup_location || entry.receiving_center_name ? (
               <span className="text-xs text-slate-500">{entry.checkup_location || entry.receiving_center_name}</span>
             ) : null}
           </div>
           <p className="mt-2 text-xs text-slate-400">
-            {entry.queue_position === 1
+            {entry.queue_status === 'called'
+              ? 'Being called now'
+              : entry.queue_position === 1
               ? 'First in line today'
               : `${entry.queue_position - 1} patient${entry.queue_position === 2 ? '' : 's'} ahead`}
             {total > 0 ? ` · ${total} waiting` : ''}

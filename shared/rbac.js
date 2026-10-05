@@ -94,6 +94,7 @@ const BARANGAY_STAFF = [
 const PATIENT = [
   P.DASHBOARD_VIEW,
   P.TRACKING_OWN,
+  P.PROFILE_VIEW,
   P.OFFLINE_SYNC,
 ];
 
@@ -142,7 +143,14 @@ export const NAV_ITEMS = [
   { id: 'profile', label: 'Settings', permission: P.PROFILE_VIEW },
 ];
 
+export const PATIENT_NAV_ITEMS = [
+  { id: 'dashboard', label: 'Queue Status', permission: P.DASHBOARD_VIEW },
+  { id: 'history', label: 'History', permission: P.TRACKING_OWN },
+  { id: 'profile', label: 'Profile', permission: P.PROFILE_VIEW },
+];
+
 export function navigationForRole(role) {
+  if (role === ROLES.PATIENT) return PATIENT_NAV_ITEMS;
   return NAV_ITEMS.filter((item) => {
     if (item.anyOf) return hasPermission(role, ...item.anyOf);
     return hasPermission(role, item.permission);

@@ -9,9 +9,11 @@ import {
   completeReferral,
   countTodayQueueEntries,
   createReferralWithQueue,
+  findReferralByCode,
   getHealthCenter,
   getPatient,
   getReferral,
+  getStaffTracking,
   hasSentSms,
   listHealthCenters,
   listReferrals,
@@ -24,6 +26,7 @@ import { generateDefaultAppointmentAt } from '../lib/supabase/helpers.js';
 import { audit } from '../services/auditService.js';
 import { createQueueNumber, createReferralCode } from '../services/codeService.js';
 import { calculatePriority } from '../services/priorityService.js';
+import { invalidateForecastCache } from '../services/forecastService.js';
 import { approvalMessage, cancellationMessage, completionThankYouMessage, confirmationMessagePair, missedMessage, rejectionMessage, rescheduleMessage, resolvePatientDisplayName, sendSms, transferMessage } from '../services/smsService.js';
 import { recordMetric, startTimer } from '../services/performanceService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
@@ -41,6 +44,11 @@ const referralSchema = z.object({
 
 const reviewSchema = z.object({
   appointment_at: z.string().optional().nullable(),
+  severity_level: z.enum(['low', 'moderate', 'high']).optional(),
+});
+
+const priorityUpdateSchema = z.object({
+  severity_level: z.enum(['low', 'moderate', 'high']),
 });
 
 const rejectSchema = z.object({
@@ -73,13 +81,43 @@ function referralActionError(res, referral, action) {
   return null;
 }
 
-router.get('/', authenticate, authorize(PERMISSIONS.REFERRALS_VIEW, PERMISSIONS.TRACKING_OWN), async (req, res, next) => {
+router.get('/', authenticate, authorize(PERMISSIONS.REFERRALS_VIEW), async (req, res, next) => {
   try {
-    let referrals = await listReferrals(buildFilters(req));
-    if (req.user.role === 'patient') {
-      referrals = referrals.filter((row) => Number(row.patient_id) === Number(req.user.patient_id));
-    }
+    const referrals = await listReferrals(buildFilters(req));
     res.json({ referrals });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/track/:code', authenticate, authorize(PERMISSIONS.TRACKING_VIEW, PERMISSIONS.TRACKING_OWN, PERMISSIONS.REFERRALS_VIEW), async (req, res, next) => {
+  try {
+    const code = String(req.params.code || '').trim();
+    if (!code) {
+      return res.status(400).json({ message: 'Enter a tracking code.' });
+    }
+
+    const referral = await findReferralByCode(code);
+    if (!referral) {
+      return res.status(404).json({ message: 'Referral tracking code not found.' });
+    }
+
+    if (req.user.role === 'patient' && Number(referral.patient_id) !== Number(req.user.patient_id)) {
+      return res.status(404).json({ message: 'Referral tracking code not found.' });
+    }
+
+    if (req.user.role === 'barangay_staff') {
+      const healthCenterId = Number(req.user.health_center_id);
+      const allowed = [referral.referring_health_center_id, referral.receiving_health_center_id]
+        .map(Number)
+        .includes(healthCenterId);
+      if (!allowed) {
+        return res.status(403).json({ message: 'This referral belongs to another health center.' });
+      }
+    }
+
+    const tracking = await getStaffTracking(referral);
+    return res.json({ tracking, ...tracking });
   } catch (error) {
     next(error);
   }
@@ -124,7 +162,8 @@ router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (r
     };
 
     const priorityStartedAt = startTimer();
-    const { priorityScore, priorityLevel } = await calculatePriority({ patient, referral: payload });
+    const priority = await calculatePriority({ patient, referral: payload });
+    const { priorityScore, priorityLevel } = priority;
     await recordMetric('priority_score_computation', priorityStartedAt, null);
 
     const count = await countTodayQueueEntries();
@@ -135,10 +174,12 @@ router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (r
       patientId: payload.patient_id,
       priorityLevel,
       priorityScore,
+      priorityDetails: priority,
       queueNumber,
       userId: req.user.id,
       appointmentAt,
     });
+    invalidateForecastCache();
 
     const smsStartedAt = startTimer();
     const bookingSms = await confirmationMessagePair({
@@ -162,6 +203,8 @@ router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (r
       ...payload,
       queue_number: outcome.queueNumber,
       priority_level: priorityLevel,
+      priority_band: priority.priorityBand,
+      priority_reasons: priority.reasons,
       appointment_at: appointmentAt,
     });
 
@@ -173,6 +216,12 @@ router.post('/', authenticate, authorize(PERMISSIONS.REFERRALS_CREATE), async (r
       queue_number: outcome.queueNumber,
       priority_level: priorityLevel,
       priority_score: priorityScore,
+      priority_band: priority.priorityBand,
+      priority_label: priority.priorityLabel,
+      priority_reasons: priority.reasons,
+      severity_score: priority.severityScore,
+      vulnerability_score: priority.vulnerabilityScore,
+      vulnerability_count: priority.vulnerabilityCount,
       appointment_at: appointmentAt,
       sms_status: smsResult.status,
       sms_error: smsResult.error || smsResult.reason || null,
@@ -217,6 +266,7 @@ router.post('/:id/transfer', authenticate, authorize(PERMISSIONS.REFERRALS_TRANS
 
     const sameCenter = Number(referral.receiving_health_center_id) === Number(receivingCenter.id);
     const updated = await transferReferralLocation(id, receivingCenter.id);
+    invalidateForecastCache();
     let smsResult = { status: 'skipped', reason: 'Checkup location did not change.' };
     if (!sameCenter) {
       smsResult = await sendSms({
@@ -289,7 +339,12 @@ router.post('/:id/approve', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW
 
     const patient = await getPatient(referral.patient_id);
     const priorityStartedAt = startTimer();
-    const { priorityScore, priorityLevel } = await calculatePriority({ patient, referral });
+    const severityLevel = data.severity_level || referral.severity_level || 'moderate';
+    const priority = await calculatePriority({
+      patient,
+      referral: { ...referral, severity_level: severityLevel },
+    });
+    const { priorityScore, priorityLevel } = priority;
     await recordMetric('priority_score_computation', priorityStartedAt, id);
 
     const count = await countTodayQueueEntries();
@@ -299,10 +354,13 @@ router.post('/:id/approve', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW
       id,
       userId: req.user.id,
       appointmentAt: data.appointment_at || null,
+      severityLevel,
       priorityLevel,
       priorityScore,
+      priorityDetails: priority,
       queueNumber,
     });
+    invalidateForecastCache();
 
     const receivingCenter = await getHealthCenter(referral.receiving_health_center_id);
     await audit(req, 'referral.approved', 'referral', id, null, outcome);
@@ -332,9 +390,59 @@ router.post('/:id/approve', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW
       queue_number: outcome.queueNumber,
       priority_level: outcome.priorityLevel,
       priority_score: outcome.priorityScore,
+      priority_band: priority.priorityBand,
+      priority_label: priority.priorityLabel,
+      priority_reasons: priority.reasons,
+      severity_score: priority.severityScore,
+      vulnerability_score: priority.vulnerabilityScore,
+      vulnerability_count: priority.vulnerabilityCount,
     });
   } catch (error) {
     next(error);
+  }
+});
+
+router.patch('/:id/priority', authenticate, authorize(PERMISSIONS.REFERRALS_REVIEW), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const data = priorityUpdateSchema.parse(req.body);
+    const referral = await getReferral(id);
+    if (!referral) return res.status(404).json({ message: 'Referral not found.' });
+    if (!['submitted', 'under_review', 'queued'].includes(referral.status)) {
+      return res.status(409).json({ message: 'Priority can only be updated for an open referral.' });
+    }
+
+    const patient = await getPatient(referral.patient_id);
+    await updateReferral(id, { severity_level: data.severity_level });
+    invalidateForecastCache();
+    const priority = await calculatePriority({
+      patient,
+      referral: { ...referral, severity_level: data.severity_level },
+    });
+    await audit(req, 'referral.priority_updated', 'referral', id, {
+      severity_level: referral.severity_level,
+      priority_score: referral.priority_score,
+    }, {
+      severity_level: data.severity_level,
+      priority_score: priority.priorityScore,
+      priority_band: priority.priorityBand,
+      priority_reasons: priority.reasons,
+    });
+
+    return res.json({
+      id,
+      severity_level: data.severity_level,
+      priority_score: priority.priorityScore,
+      priority_level: priority.priorityLevel,
+      priority_band: priority.priorityBand,
+      priority_label: priority.priorityLabel,
+      priority_reasons: priority.reasons,
+      severity_score: priority.severityScore,
+      vulnerability_score: priority.vulnerabilityScore,
+      vulnerability_count: priority.vulnerabilityCount,
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 
@@ -402,6 +510,7 @@ router.post('/:id/complete', authenticate, authorize(PERMISSIONS.REFERRALS_REVIE
     });
 
     await audit(req, 'referral.completed', 'referral', id);
+    invalidateForecastCache();
     res.json({
       id,
       status: 'completed',

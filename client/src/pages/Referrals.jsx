@@ -43,8 +43,8 @@ import {
 } from '../components/ui';
 import { classNames, formatDateTime, priorityLabel } from '../components/helpers';
 import { findHealthCenterForBarangay, homeBarangayLabelForCenter, toBarangaySearchableOptions } from '../data/koronadalBarangays';
-import { PATIENT_CLASSIFICATION_FIELDS, emptyPatientClassifications } from '../data/patientClassifications';
-import { applyServerIssues, normalizePhMobile, validatePatientForm } from '../lib/patientValidation';
+import { PATIENT_CLASSIFICATION_FIELDS, classificationTones, emptyPatientClassifications } from '../data/patientClassifications';
+import { applyServerIssues, classificationsFromBirthDate, AGE_CLASSIFICATION_KEYS, normalizePhMobile, validatePatientForm } from '../lib/patientValidation';
 
 const initialReferral = {
   patient_id: '',
@@ -81,15 +81,15 @@ const REFERRAL_STATUS_FILTER_OPTIONS = [
   { value: 'missed', label: 'Missed' },
   { value: 'rejected', label: 'Rejected' },
   { value: 'cancelled', label: 'Cancelled' },
-  { value: 'archived', label: 'Archived' },
   { value: 'expired', label: 'Expired' },
 ];
 
 const REFERRAL_PRIORITY_FILTER_OPTIONS = [
   { value: '', label: 'Any priority' },
-  { value: 'priority_1_emergency', label: 'Priority 1 Emergency' },
-  { value: 'priority_2_vulnerable', label: 'Priority 2 Vulnerable' },
-  { value: 'priority_3_standard', label: 'Priority 3 Standard' },
+  { value: 'critical', label: 'Critical priority' },
+  { value: 'high', label: 'High priority' },
+  { value: 'medium', label: 'Medium priority' },
+  { value: 'normal', label: 'Normal priority' },
 ];
 
 const clinicalUrgencyOptions = toSearchableOptions(CLINICAL_URGENCY_OPTIONS);
@@ -112,10 +112,14 @@ const initialQuickPatient = {
   ...emptyPatientClassifications,
 };
 
+function isArchivedReferral(referral) {
+  return referral.status === 'archived';
+}
+
 const STATUS_GROUPS = {
   pending: ['submitted', 'under_review'],
   active: ['queued'],
-  closed: ['completed', 'missed', 'rejected', 'expired', 'cancelled', 'archived'],
+  closed: ['completed', 'missed', 'rejected', 'expired', 'cancelled'],
 };
 
 function isQueuedReferral(referral) {
@@ -211,11 +215,13 @@ const REFERRAL_ACTION_CONFIRM = {
 };
 
 function referralCounts(referrals) {
+  const live = referrals.filter((referral) => !isArchivedReferral(referral));
   return {
-    all: referrals.length,
-    pending: referrals.filter((referral) => STATUS_GROUPS.pending.includes(referral.status)).length,
-    active: referrals.filter((referral) => STATUS_GROUPS.active.includes(referral.status) && !referral.is_expired).length,
-    closed: referrals.filter((referral) => STATUS_GROUPS.closed.includes(referral.status)).length,
+    all: live.length,
+    pending: live.filter((referral) => STATUS_GROUPS.pending.includes(referral.status)).length,
+    active: live.filter((referral) => STATUS_GROUPS.active.includes(referral.status) && !referral.is_expired).length,
+    closed: live.filter((referral) => STATUS_GROUPS.closed.includes(referral.status)).length,
+    archived: referrals.filter(isArchivedReferral).length,
   };
 }
 
@@ -234,7 +240,7 @@ function referralSummary(counts) {
 }
 
 const STATUS_VIEWS = [
-  { id: 'all', label: 'All', hint: 'Every referral' },
+  { id: 'all', label: 'All', hint: 'Every live referral' },
   { id: 'pending', label: 'Needs review', hint: 'Waiting for a decision' },
   { id: 'active', label: 'In queue', hint: 'Approved and waiting' },
   { id: 'closed', label: 'Closed', hint: 'Finished or cancelled' },
@@ -293,20 +299,74 @@ function WorkflowGuide({ canReview }) {
   );
 }
 
-export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, canCreate = !canReview, user, onRefresh }) {
+function referralClassificationTags(referral) {
+  return PATIENT_CLASSIFICATION_FIELDS.filter((field) => referral?.[field.key]);
+}
+
+function ClassificationBadges({ patient }) {
+  const tags = referralClassificationTags(patient);
+  if (!tags.length) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {tags.map((field) => (
+        <span
+          key={field.key}
+          className={classNames(
+            'inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+            field.tone || classificationTones[field.shortLabel],
+          )}
+        >
+          {field.shortLabel}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TrackCodeLink({ code, onOpenTracking, className }) {
+  const value = code && code !== '—' ? code : '';
+  if (!value || !onOpenTracking) {
+    return <span className={className}>{code || '—'}</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTracking(value)}
+      className={classNames(
+        className,
+        'rounded-md text-left underline-offset-2 transition hover:text-cyan-700 hover:underline',
+      )}
+      title="Open full details in Track Referral"
+    >
+      {value}
+    </button>
+  );
+}
+
+export default function Referrals({ patients, healthCenters, referrals, filters, setFilters, canReview, canCreate = !canReview, user, onRefresh, onOpenTracking }) {
   const [screen, setScreen] = useState(canCreate ? 'new' : 'list');
   const [statusGroup, setStatusGroup] = useState('all');
-  const counts = useMemo(() => referralCounts(referrals), [referrals]);
+  const referralRows = Array.isArray(referrals) ? referrals : [];
+  const counts = useMemo(() => referralCounts(referralRows), [referralRows]);
+
+  const archivedCount = counts.archived;
 
   const filteredReferrals = useMemo(() => {
-    let rows = [...referrals];
+    const viewingArchived = statusGroup === 'archived' || filters.status === 'archived';
+    let rows = viewingArchived
+      ? referralRows.filter(isArchivedReferral)
+      : referralRows.filter((referral) => !isArchivedReferral(referral));
 
-    if (statusGroup === 'pending') {
-      rows = rows.filter((r) => STATUS_GROUPS.pending.includes(r.status));
-    } else if (statusGroup === 'active') {
-      rows = rows.filter((r) => STATUS_GROUPS.active.includes(r.status) && !r.is_expired);
-    } else if (statusGroup === 'closed') {
-      rows = rows.filter((r) => STATUS_GROUPS.closed.includes(r.status));
+    if (!viewingArchived) {
+      if (statusGroup === 'pending') {
+        rows = rows.filter((r) => STATUS_GROUPS.pending.includes(r.status));
+      } else if (statusGroup === 'active') {
+        rows = rows.filter((r) => STATUS_GROUPS.active.includes(r.status) && !r.is_expired);
+      } else if (statusGroup === 'closed') {
+        rows = rows.filter((r) => STATUS_GROUPS.closed.includes(r.status));
+      }
     }
 
     if (filters.q) {
@@ -318,20 +378,20 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
       ));
     }
 
-    if (filters.status) {
+    if (filters.status && filters.status !== 'archived') {
       rows = rows.filter((r) => r.status === filters.status);
     }
 
     if (filters.priority_level) {
-      rows = rows.filter((r) => r.priority_level === filters.priority_level);
+      rows = rows.filter((r) => (r.priority_band || r.priority_level) === filters.priority_level);
     }
 
     return rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  }, [referrals, statusGroup, filters]);
+  }, [referralRows, statusGroup, filters]);
 
   const historyReferrals = useMemo(
-    () => [...referrals].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 100),
-    [referrals],
+    () => [...referralRows].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    [referralRows],
   );
 
   function handleStatusGroup(group) {
@@ -425,19 +485,22 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
       {screen === 'list' ? (
         <PageBlock>
           <div className="space-y-4">
-            <ReferralStats referrals={referrals} activeGroup={statusGroup} onSelectGroup={handleStatusGroup} />
+            <ReferralStats referrals={referralRows} activeGroup={statusGroup} onSelectGroup={handleStatusGroup} />
             <ReferralTable
               referrals={filteredReferrals}
-              totalCount={referrals.length}
-              archivableCount={referrals.filter((referral) => canArchiveReferral(referral)).length}
+              totalCount={counts.all}
+              archivedCount={archivedCount}
+              archivableCount={referralRows.filter((referral) => canArchiveReferral(referral)).length}
               onRefresh={onRefresh}
               canReview={canReview}
               canTransfer
               healthCenters={healthCenters}
               filters={filters}
               setFilters={setFilters}
-              statusGroup={statusGroup}
+              statusGroup={statusGroup === 'archived' || filters.status === 'archived' ? 'archived' : statusGroup}
               onShowAll={() => handleStatusGroup('all')}
+              onShowArchived={() => handleStatusGroup('archived')}
+              onOpenTracking={onOpenTracking}
             />
           </div>
         </PageBlock>
@@ -445,13 +508,13 @@ export default function Referrals({ patients, healthCenters, referrals, filters,
 
       {screen === 'history' ? (
         <PageBlock>
-          <ReferralHistory referrals={historyReferrals} />
+          <ReferralHistory referrals={historyReferrals} onOpenTracking={onOpenTracking} />
         </PageBlock>
       ) : null}
 
       {screen === 'sms' && canReview ? (
         <PageBlock>
-          <ManualSmsPanel referrals={referrals} onRefresh={onRefresh} />
+          <ManualSmsPanel referrals={referralRows} onRefresh={onRefresh} />
         </PageBlock>
       ) : null}
     </PageStack>
@@ -507,7 +570,14 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
   const canSubmitReferral = form.patient_id && form.receiving_health_center_id && form.referral_reason.trim() && patientContact;
 
   function updateQuickPatient(key, value) {
-    setQuickPatient((current) => ({ ...current, [key]: value }));
+    setQuickPatient((current) => {
+      const next = { ...current, [key]: value };
+      if (key === 'birth_date') Object.assign(next, classificationsFromBirthDate(value));
+      if (AGE_CLASSIFICATION_KEYS.includes(key)) {
+        return { ...current, ...classificationsFromBirthDate(current.birth_date) };
+      }
+      return next;
+    });
   }
 
   async function registerPatient(event) {
@@ -714,13 +784,13 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                     <p className="mb-3 text-sm font-medium text-emerald-900">Quick patient registration</p>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <Field label="First name" error={patientFieldErrors.first_name}>
-                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.first_name)} required />
+                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.first_name)} required />
                       </Field>
                       <Field label="Middle name" error={patientFieldErrors.middle_name}>
-                        <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.middle_name)} />
+                        <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.middle_name)} />
                       </Field>
                       <Field label="Last name" error={patientFieldErrors.last_name}>
-                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} aria-invalid={Boolean(patientFieldErrors.last_name)} required />
+                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.last_name)} required />
                       </Field>
                       <Field label="Birth date" error={patientFieldErrors.birth_date}>
                         <TextInput type="date" value={quickPatient.birth_date} onChange={(event) => updateQuickPatient('birth_date', event.target.value)} aria-invalid={Boolean(patientFieldErrors.birth_date)} required />
@@ -745,34 +815,43 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                             searchPlaceholder="Search barangay…"
                             emptyMessage="No barangay matches your search"
                             disabled={Boolean(lockedAddress)}
+                            allowNumbers={false}
                             required
                           />
                         </Field>
                       </div>
                       <div className="sm:col-span-2 lg:col-span-3">
                         <Field label="Address 2 (optional)">
-                          <TextInput value={quickPatient.address2} onChange={(event) => updateQuickPatient('address2', event.target.value)} placeholder="Add (optional)" />
+                          <TextInput allowNumbers={false} value={quickPatient.address2} onChange={(event) => updateQuickPatient('address2', event.target.value)} placeholder="Add (optional)" />
                         </Field>
                       </div>
                       <Field label="City" error={patientFieldErrors.city}>
-                        <TextInput value={quickPatient.city} onChange={(event) => updateQuickPatient('city', event.target.value)} aria-invalid={Boolean(patientFieldErrors.city)} />
+                        <TextInput value={quickPatient.city} onChange={(event) => updateQuickPatient('city', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.city)} />
                       </Field>
                       <Field label="Province" error={patientFieldErrors.province}>
-                        <TextInput value={quickPatient.province} onChange={(event) => updateQuickPatient('province', event.target.value)} aria-invalid={Boolean(patientFieldErrors.province)} />
+                        <TextInput value={quickPatient.province} onChange={(event) => updateQuickPatient('province', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.province)} />
                       </Field>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-3">
-                      {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => (
-                        <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-emerald-100">
-                          <input
-                            type="checkbox"
-                            checked={quickPatient[key]}
-                            onChange={(event) => updateQuickPatient(key, event.target.checked)}
-                          />
-                          {label}
-                        </label>
-                      ))}
+                      {PATIENT_CLASSIFICATION_FIELDS.map(({ key, label }) => {
+                        const ageLocked = AGE_CLASSIFICATION_KEYS.includes(key);
+                        return (
+                          <label key={key} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-emerald-100">
+                            <input
+                              type="checkbox"
+                              checked={quickPatient[key]}
+                              disabled={ageLocked}
+                              title={ageLocked ? 'Set automatically from birth date' : undefined}
+                              onChange={(event) => updateQuickPatient(key, event.target.checked)}
+                            />
+                            {label}
+                          </label>
+                        );
+                      })}
                     </div>
+                    <p className="mt-2 text-xs text-emerald-800">
+                      Infant, child, and senior citizen are checked automatically from the birth date.
+                    </p>
                     <p className="mt-3 text-xs text-emerald-800">
                       Registration stamp: {formatDateTime(new Date())} at {user?.health_center_name || 'the registering health center'}.
                     </p>
@@ -896,6 +975,18 @@ function ReferralReviewPanel({ referral, mode, decision, setDecision, onSubmit, 
               <option value="approved">Approve — assign queue & send SMS</option>
               <option value="rejected">Reject — notify patient</option>
             </SelectInput>
+          </Field>
+        ) : null}
+        {mode === 'review' && decision.status === 'approved' ? (
+          <Field label="Severity">
+            <SearchableSelect
+              value={decision.severity_level}
+              onChange={(nextValue) => setDecision({ ...decision, severity_level: nextValue })}
+              options={severityOptions}
+              placeholder="Select severity"
+              searchPlaceholder="Search severity…"
+              required
+            />
           </Field>
         ) : null}
         <Field label="Appointment (optional for approval)">
@@ -1095,13 +1186,17 @@ function ReferralRecordCard({
   onSubmitReview,
   onCloseReview,
   actionError,
+  onOpenTracking,
 }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</p>
+          <p className="font-mono text-xs font-semibold text-slate-800">
+            <TrackCodeLink code={referralTrackingCode(referral)} onOpenTracking={onOpenTracking} />
+          </p>
           <p className="mt-1 text-sm font-medium text-slate-900">{referralPatientName(referral)}</p>
+          <ClassificationBadges patient={referral} />
           <p className="mt-0.5 text-xs text-slate-500">{referral.receiving_center_name}</p>
         </div>
         <StatusBadge value={referral.status} />
@@ -1110,7 +1205,8 @@ function ReferralRecordCard({
       <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-xl bg-slate-50 px-3 py-2">
           <dt className="text-slate-500">Priority</dt>
-          <dd className="mt-0.5 font-medium text-slate-800">{priorityLabel(referral.priority_level)}</dd>
+          <dd className="mt-0.5 font-medium text-slate-800">{priorityLabel(referral.priority_band || referral.priority_level)}</dd>
+          {referral.priority_score != null ? <dd className="text-xs text-slate-500">Score {referral.priority_score}</dd> : null}
         </div>
         <div className="rounded-xl bg-slate-50 px-3 py-2">
           <dt className="text-slate-500">Queue</dt>
@@ -1153,14 +1249,22 @@ function ReferralRecordCard({
   );
 }
 
-function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup, onShowAll }) {
+const PAGE_SIZE = 25;
+
+function ReferralTable({ referrals, totalCount, archivedCount = 0, archivableCount = 0, onRefresh, canReview, canTransfer = false, healthCenters = [], filters, setFilters, statusGroup, onShowAll, onShowArchived, onOpenTracking }) {
   const confirm = useConfirm();
+  const [page, setPage] = useState(1);
   const [reviewing, setReviewing] = useState(null);
   const [archivingAll, setArchivingAll] = useState(false);
   const [reviewMode, setReviewMode] = useState('review');
   const [actionError, setActionError] = useState('');
   const [actingId, setActingId] = useState(null);
-  const [decision, setDecision] = useState({ status: 'approved', appointment_time: '', rejection_reason: '' });
+  const [decision, setDecision] = useState({
+    status: 'approved',
+    appointment_time: '',
+    rejection_reason: '',
+    severity_level: 'moderate',
+  });
   const [transferring, setTransferring] = useState(null);
   const [transferCenterId, setTransferCenterId] = useState('');
 
@@ -1172,6 +1276,7 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
       status: 'approved',
       appointment_time: toDatetimeLocalValue(referral.appointment_time || referral.appointment_at),
       rejection_reason: '',
+      severity_level: referral.severity_level || 'moderate',
     });
   }
 
@@ -1233,7 +1338,10 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
       } else if (decision.status === 'approved') {
         await api(`/referrals/${reviewing.id}/approve`, {
           method: 'POST',
-          body: JSON.stringify({ appointment_at: decision.appointment_time || null }),
+          body: JSON.stringify({
+            appointment_at: decision.appointment_time || null,
+            severity_level: decision.severity_level,
+          }),
         });
       } else {
         await api(`/referrals/${reviewing.id}/reject`, {
@@ -1331,25 +1439,54 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
     all: { title: 'All referrals', detail: 'Newest referrals first. Use search or priority to narrow the list.' },
     pending: { title: 'Needs review', detail: 'These referrals are submitted and still need a decision.' },
     active: { title: 'In queue', detail: 'These referrals are approved and waiting for their appointment.' },
-    closed: { title: 'Closed', detail: 'Completed, missed, rejected, expired, cancelled, or archived referrals.' },
+    closed: { title: 'Closed', detail: 'Completed, missed, rejected, expired, or cancelled referrals.' },
+    archived: { title: 'All archived referrals', detail: 'Archived records stay on file. They are hidden from the live referral list.' },
   }[statusGroup] || { title: 'Referrals', detail: 'Filtered referrals.' };
   const hasNarrowingFilters = Boolean(filters.q || filters.status || filters.priority_level);
+  const pageCount = Math.max(1, Math.ceil(referrals.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedReferrals = referrals.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.q, filters.status, filters.priority_level, statusGroup]);
 
   return (
     <Card title={groupCopy.title} icon={ListChecks}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-500">{groupCopy.detail}</p>
-        {canReview && archivableCount > 0 ? (
-          <button
-            type="button"
-            onClick={archiveFinished}
-            disabled={archivingAll}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Archive className="h-4 w-4" />
-            Archive all finished
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {statusGroup === 'archived' ? (
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+            >
+              Show all referrals
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onShowArchived}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+            >
+              <Archive className="h-4 w-4" />
+              Show all archived
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{archivedCount}</span>
+            </button>
+          )}
+          {canReview && archivableCount > 0 && statusGroup !== 'archived' ? (
+            <button
+              type="button"
+              onClick={archiveFinished}
+              disabled={archivingAll}
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Archive className="h-4 w-4" />
+              Archive all finished
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="mb-4">
@@ -1396,14 +1533,17 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
               pending: 'Nothing is waiting for review',
               active: 'The queue is empty',
               closed: 'No closed referrals',
+              archived: 'No archived referrals',
             }[statusGroup] || 'No referrals in this view'}
           </p>
           <p className="mt-1 text-sm text-slate-500">
             {hasNarrowingFilters
               ? 'Clear the search or priority filter to see this group again.'
-              : statusGroup === 'all'
-                ? 'New referrals will show up in this list.'
-                : `${totalCount} referral${totalCount === 1 ? ' is' : 's are'} in the other groups.`}
+              : statusGroup === 'archived'
+                ? 'Finished referrals that are archived will appear here.'
+                : statusGroup === 'all'
+                  ? 'New referrals will show up in this list.'
+                  : `${totalCount} referral${totalCount === 1 ? ' is' : 's are'} in the other groups.`}
           </p>
           {statusGroup !== 'all' && !hasNarrowingFilters && totalCount > 0 ? (
             <button
@@ -1418,7 +1558,7 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
       ) : (
         <>
           <div className="space-y-3 lg:hidden">
-            {referrals.map((referral) => (
+            {pagedReferrals.map((referral) => (
               <ReferralRecordCard
                 key={referral.id}
                 referral={referral}
@@ -1434,6 +1574,7 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
                 onTransfer={startTransfer}
                 onSubmitReview={submitReview}
                 onCloseReview={() => setReviewing(null)}
+                onOpenTracking={onOpenTracking}
                 actionError={actionError}
               />
             ))}
@@ -1450,7 +1591,7 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
                 <TableHeadCell className="w-[12%] text-right">Actions</TableHeadCell>
               </TableHead>
               <TableBody>
-                {referrals.map((referral, index) => {
+                {pagedReferrals.map((referral, index) => {
                   const rowBusy = isActing(referral.id);
                   const isExpanded = reviewing?.id === referral.id;
 
@@ -1458,16 +1599,24 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
                     <Fragment key={referral.id}>
                       <AnimatedTableRow index={index}>
                         <td className="px-4 py-3 align-top">
-                          <p className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</p>
+                          <p className="font-mono text-xs font-semibold text-slate-800">
+                            <TrackCodeLink code={referralTrackingCode(referral)} onOpenTracking={onOpenTracking} />
+                          </p>
                           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{referral.checkup_location || referral.receiving_center_name}</p>
                           {referral.home_barangay ? (
                             <p className="mt-0.5 text-xs text-slate-400">Home: {referral.home_barangay}</p>
                           ) : null}
                         </td>
-                        <td className="px-4 py-3 align-top text-sm font-medium text-slate-800">{referralPatientName(referral)}</td>
+                        <td className="px-4 py-3 align-top">
+                          <p className="text-sm font-medium text-slate-800">{referralPatientName(referral)}</p>
+                          <ClassificationBadges patient={referral} />
+                        </td>
                         <td className="px-4 py-3 align-top"><StatusBadge value={referral.status} /></td>
                         <td className="px-4 py-3 align-top">
-                          <p className="text-sm font-medium text-slate-800">{priorityLabel(referral.priority_level)}</p>
+                          <p className="text-sm font-medium text-slate-800">{priorityLabel(referral.priority_band || referral.priority_level)}</p>
+                          {referral.priority_score != null ? (
+                            <p className="mt-0.5 text-xs text-slate-500">Score {referral.priority_score}</p>
+                          ) : null}
                           {referral.queue_number ? (
                             <p className="mt-0.5 text-xs text-slate-500">Queue #{referral.queue_number}</p>
                           ) : null}
@@ -1509,42 +1658,104 @@ function ReferralTable({ referrals, totalCount, archivableCount = 0, onRefresh, 
               </TableBody>
             </TableShell>
           </div>
+          {referrals.length > PAGE_SIZE ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, referrals.length)} of {referrals.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-sm font-medium text-slate-600">Page {currentPage} of {pageCount}</span>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
     </Card>
   );
 }
 
-function ReferralHistory({ referrals }) {
+function ReferralHistory({ referrals, onOpenTracking }) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(referrals.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedReferrals = referrals.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   return (
     <Card title="Referral history" icon={History}>
       <p className="mb-4 text-sm text-slate-500">Chronological log of all submissions and outcomes.</p>
       {referrals.length === 0 ? (
         <p className="text-sm text-slate-500">No referral history yet.</p>
       ) : (
-        <div className="space-y-3">
-          {referrals.map((referral) => (
-            <div key={referral.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs font-semibold text-slate-800">{referralTrackingCode(referral)}</span>
-                  <StatusBadge value={referral.status} />
+        <>
+          <div className="space-y-3">
+            {pagedReferrals.map((referral) => (
+              <div key={referral.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-slate-800">
+                      <TrackCodeLink code={referralTrackingCode(referral)} onOpenTracking={onOpenTracking} />
+                    </span>
+                    <StatusBadge value={referral.status} />
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-slate-800">{referralPatientName(referral)}</p>
+                  <ClassificationBadges patient={referral} />
+                  <p className="mt-0.5 text-xs text-slate-500">{referral.receiving_center_name}</p>
                 </div>
-                <p className="mt-1 text-sm font-medium text-slate-800">{referralPatientName(referral)}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{referral.receiving_center_name}</p>
+                <div className="text-right text-xs text-slate-500">
+                  <div className="inline-flex items-center gap-1">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    {new Date(referral.created_at).toLocaleString()}
+                  </div>
+                  {referral.queue_number ? (
+                    <p className="mt-1 font-medium text-slate-700">Queue #{referral.queue_number}</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="text-right text-xs text-slate-500">
-                <div className="inline-flex items-center gap-1">
-                  <Clock3 className="h-3.5 w-3.5" />
-                  {new Date(referral.created_at).toLocaleString()}
-                </div>
-                {referral.queue_number ? (
-                  <p className="mt-1 font-medium text-slate-700">Queue #{referral.queue_number}</p>
-                ) : null}
+            ))}
+          </div>
+          {referrals.length > PAGE_SIZE ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-slate-500">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, referrals.length)} of {referrals.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((value) => Math.max(1, value - 1))}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-sm font-medium text-slate-600">Page {currentPage} of {pageCount}</span>
+                <button
+                  type="button"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                >
+                  Next
+                </button>
               </div>
             </div>
-          ))}
-        </div>
+          ) : null}
+        </>
       )}
     </Card>
   );
@@ -1555,6 +1766,18 @@ function ManualSmsPanel({ referrals, onRefresh }) {
   const [form, setForm] = useState({ referral_id: '', message: '' });
   const [status, setStatus] = useState('');
   const eligibleReferrals = useMemo(() => referrals.filter((referral) => referral.contact_number), [referrals]);
+  const referralOptions = useMemo(() => (
+    eligibleReferrals.map((referral) => {
+      const code = referralTrackingCode(referral);
+      const name = referralPatientName(referral);
+      return {
+        value: String(referral.id),
+        label: `${code} — ${name}`,
+        hint: referral.receiving_center_name || '',
+        searchText: [code, name, referral.first_name, referral.last_name, referral.patient_name, referral.contact_number, referral.receiving_center_name].filter(Boolean).join(' '),
+      };
+    })
+  ), [eligibleReferrals]);
 
   async function submit(event) {
     event.preventDefault();
@@ -1576,18 +1799,19 @@ function ManualSmsPanel({ referrals, onRefresh }) {
   return (
     <Card title="Manual SMS" icon={Send}>
       <p className="mb-4 text-sm text-slate-500">
-        Send a one-off message to a patient with a contact number on file.
+        Search by tracking code or patient name, then send a one-off message to a number on file.
       </p>
       <form onSubmit={submit} className="grid max-w-2xl gap-3">
         <Field label="Referral">
-          <SelectInput value={form.referral_id} onChange={(event) => setForm({ ...form, referral_id: event.target.value })} required>
-            <option value="">Select referral</option>
-            {eligibleReferrals.map((referral) => (
-              <option key={referral.id} value={referral.id}>
-                {referralTrackingCode(referral)} — {referralPatientName(referral)}
-              </option>
-            ))}
-          </SelectInput>
+          <SearchableSelect
+            value={form.referral_id}
+            onChange={(nextValue) => setForm({ ...form, referral_id: nextValue })}
+            options={referralOptions}
+            placeholder="Select referral"
+            searchPlaceholder="Search tracking code or patient name…"
+            emptyMessage="No referral matches that code or name"
+            required
+          />
         </Field>
         <Field label="Message">
           <textarea

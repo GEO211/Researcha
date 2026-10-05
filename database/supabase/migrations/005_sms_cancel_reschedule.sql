@@ -9,7 +9,8 @@ ALTER TABLE sms_logs ADD CONSTRAINT sms_logs_trigger_type_check
     'referral_completed',
     'referral_booked',
     'referral_cancelled',
-    'referral_rescheduled'
+    'referral_rescheduled',
+    'referral_transferred'
   ));
 
 INSERT INTO system_settings (setting_key, setting_value, description, created_at, updated_at)

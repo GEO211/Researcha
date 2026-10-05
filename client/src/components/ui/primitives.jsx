@@ -36,7 +36,7 @@ export function Field({ label, children, error, hint }) {
   );
 }
 
-export function TextInput({ className, allowNumbers = true, numericOnly = false, onChange, ...props }) {
+export function TextInput({ className, allowNumbers = true, numericOnly = false, onChange, onKeyDown, ...props }) {
   function handleChange(event) {
     const rawValue = event.target.value ?? '';
     let nextValue = rawValue;
@@ -58,10 +58,18 @@ export function TextInput({ className, allowNumbers = true, numericOnly = false,
     }
   }
 
+  function handleKeyDown(event) {
+    if (!allowNumbers && !numericOnly && /^\d$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+    }
+    if (typeof onKeyDown === 'function') onKeyDown(event);
+  }
+
   return (
     <input
       {...props}
       onChange={handleChange}
+      onKeyDown={handleKeyDown}
       inputMode={numericOnly ? 'numeric' : props.inputMode}
       className={cn(
         'w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2',

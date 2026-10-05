@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 
 const MotionDiv = motion.div;
 
-export const viewport = { once: true, amount: 0.2 };
+export const viewport = { once: true, amount: 0 };
 
 export const easeOut = [0.22, 1, 0.36, 1];
 

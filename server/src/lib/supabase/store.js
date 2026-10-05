@@ -1,5 +1,6 @@
 import { phMobileDigits } from '../patientRules.js';
 import { query, queryOne, withTransaction } from './query.js';
+import { calculateQueuePriority } from '../../../../shared/queuePriority.js';
 import {
   EXPIRABLE_REFERRAL_STATUSES,
   getHealthCenterMap,
@@ -35,6 +36,23 @@ const TABLES = {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function queuePriorityColumns(priority = {}) {
+  return {
+    priority_level: priority.legacyPriorityLevel || priority.priorityLevel || 'priority_3_standard',
+    priority_score: Number(priority.score ?? priority.priorityScore ?? 0),
+    priority_band: priority.priorityBand
+      || (priority.priorityLevel && !String(priority.priorityLevel).startsWith('priority_')
+        ? priority.priorityLevel
+        : null)
+      || 'normal',
+    severity_rank: Number(priority.severityRank || 0),
+    severity_score: Number(priority.severityScore || 0),
+    vulnerability_score: Number(priority.vulnerabilityScore || 0),
+    vulnerability_count: Number(priority.vulnerabilityCount || 0),
+    priority_reasons: priority.reasons || [],
+  };
 }
 
 function serializeRow(row) {
@@ -167,6 +185,12 @@ function enrichReferralRecord(referral, { patientMap, centerMap, queueMap } = {}
     queue_number: queue?.queue_number || null,
     priority_level: queue?.priority_level || null,
     priority_score: queue?.priority_score ?? null,
+    priority_band: queue?.priority_band || null,
+    priority_reasons: queue?.priority_reasons || [],
+    severity_rank: queue?.severity_rank ?? null,
+    severity_score: queue?.severity_score ?? null,
+    vulnerability_score: queue?.vulnerability_score ?? null,
+    vulnerability_count: queue?.vulnerability_count ?? null,
     queue_status: queue?.queue_status || null,
     queue_date: queueDate,
     queue_entry_id: queue?.id || null,
@@ -244,8 +268,21 @@ async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}
     tracking_code: nextReferral.referral_code,
     patient_name: patient ? `${patient.first_name} ${patient.last_name}`.trim() : null,
     first_name: patient?.first_name,
+    middle_name: patient?.middle_name,
     last_name: patient?.last_name,
+    birth_date: patient?.birth_date,
+    sex: patient?.sex,
     contact_number: patient?.contact_number,
+    address: patient?.address,
+    address2: patient?.address2,
+    city: patient?.city,
+    province: patient?.province,
+    postal_code: patient?.postal_code,
+    emergency_contact_name: patient?.emergency_contact_name,
+    emergency_contact_number: patient?.emergency_contact_number,
+    medical_notes: patient?.medical_notes,
+    patient_health_center_name: patient?.health_center_name,
+    patient_record_status: patient?.record_status,
     is_senior: patient?.is_senior,
     is_pregnant: patient?.is_pregnant,
     is_pwd: patient?.is_pwd,
@@ -262,6 +299,12 @@ async function enrichReferral(referral, { patientMap, centerMap, queueMap } = {}
     queue_number: queue?.queue_number || null,
     priority_level: queue?.priority_level || null,
     priority_score: queue?.priority_score ?? null,
+    priority_band: queue?.priority_band || null,
+    priority_reasons: queue?.priority_reasons || [],
+    severity_rank: queue?.severity_rank ?? null,
+    severity_score: queue?.severity_score ?? null,
+    vulnerability_score: queue?.vulnerability_score ?? null,
+    vulnerability_count: queue?.vulnerability_count ?? null,
     queue_status: queue?.queue_status || null,
     queue_date: queueDate,
     queue_entry_id: queue?.id || null,
@@ -536,6 +579,7 @@ export async function createPatient(data) {
 export async function updatePatient(id, data) {
   const { created_at: _createdAt, health_center_name: _centerName, ...payload } = data;
   await updateRowById(TABLES.patients, id, { ...payload, updated_at: nowIso() });
+  await recalculateQueuePriorities({ patientId: id });
   return getPatient(id);
 }
 
@@ -574,6 +618,7 @@ export async function restorePatient(id) {
 
 export async function listReferrals(filters = {}) {
   await expirePastQueueEntries();
+  await recalculateQueuePriorities();
   const limit = Math.min(Math.max(Number(filters.limit) || 300, 1), 1000);
 
   let referralSql = `SELECT * FROM ${TABLES.referrals}`;
@@ -605,7 +650,10 @@ export async function listReferrals(filters = {}) {
 
   let rows = referrals;
   if (filters.priorityLevel) {
-    rows = rows.filter((r) => queueMap.get(Number(r.id))?.priority_level === filters.priorityLevel);
+    rows = rows.filter((r) => {
+      const queue = queueMap.get(Number(r.id));
+      return queue?.priority_band === filters.priorityLevel || queue?.priority_level === filters.priorityLevel;
+    });
   }
   if (filters.q) {
     rows = rows.filter((r) => {
@@ -677,6 +725,7 @@ export async function createReferralWithQueue({
   patientId,
   priorityLevel,
   priorityScore,
+  priorityDetails,
   queueNumber,
   userId = null,
   appointmentAt = null,
@@ -685,6 +734,7 @@ export async function createReferralWithQueue({
   const ts = nowIso();
   const today = todayDateString();
   const normalizedAppointmentAt = appointmentAt ? normalizeAppointmentAt(appointmentAt) : null;
+  const priority = queuePriorityColumns(priorityDetails || { priorityLevel, priorityScore });
 
   return withTransaction(async (client) => {
     const referralData = stripUndefined({
@@ -712,10 +762,28 @@ export async function createReferralWithQueue({
 
     const queueResult = await client.query(
       `INSERT INTO ${TABLES.queueEntries}
-        (referral_id, patient_id, queue_number, priority_level, priority_score, queue_status, queue_date, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (referral_id, patient_id, queue_number, priority_level, priority_score, priority_band,
+         severity_rank, severity_score, vulnerability_score, vulnerability_count, priority_reasons,
+         queue_status, queue_date, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
-      [referralId, patientId, queueNumber, priorityLevel, priorityScore, 'waiting', today, ts, ts],
+      [
+        referralId,
+        patientId,
+        queueNumber,
+        priority.priority_level,
+        priority.priority_score,
+        priority.priority_band,
+        priority.severity_rank,
+        priority.severity_score,
+        priority.vulnerability_score,
+        priority.vulnerability_count,
+        JSON.stringify(priority.priority_reasons),
+        'waiting',
+        today,
+        ts,
+        ts,
+      ],
     );
     const queueEntry = serializeRow(queueResult.rows[0]);
 
@@ -727,7 +795,16 @@ export async function createReferralWithQueue({
   });
 }
 
-export async function approveReferralWithQueue({ id, userId, appointmentAt, priorityLevel, priorityScore, queueNumber }) {
+export async function approveReferralWithQueue({
+  id,
+  userId,
+  appointmentAt,
+  severityLevel,
+  priorityLevel,
+  priorityScore,
+  priorityDetails,
+  queueNumber,
+}) {
   return withTransaction(async (client) => {
     const referral = await txSelectOne(client, `SELECT * FROM ${TABLES.referrals} WHERE id = $1`, [id]);
     if (!referral) {
@@ -744,20 +821,40 @@ export async function approveReferralWithQueue({ id, userId, appointmentAt, prio
     const patient = await getPatient(referral.patient_id);
     const ts = nowIso();
     const normalizedAppointmentAt = appointmentAt ? normalizeAppointmentAt(appointmentAt) : null;
+    const priority = queuePriorityColumns(priorityDetails || { priorityLevel, priorityScore });
 
     await client.query(
       `UPDATE ${TABLES.referrals}
-       SET status = 'queued', reviewed_by_user_id = $1, reviewed_at = $2, appointment_at = $3, updated_at = $4
-       WHERE id = $5`,
-      [userId, ts, normalizedAppointmentAt, ts, id],
+       SET status = 'queued', reviewed_by_user_id = $1, reviewed_at = $2,
+           appointment_at = $3, severity_level = COALESCE($4, severity_level), updated_at = $5
+       WHERE id = $6`,
+      [userId, ts, normalizedAppointmentAt, severityLevel || null, ts, id],
     );
 
     const queueResult = await client.query(
       `INSERT INTO ${TABLES.queueEntries}
-        (referral_id, patient_id, queue_number, priority_level, priority_score, queue_status, queue_date, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (referral_id, patient_id, queue_number, priority_level, priority_score, priority_band,
+         severity_rank, severity_score, vulnerability_score, vulnerability_count, priority_reasons,
+         queue_status, queue_date, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
-      [id, referral.patient_id, queueNumber, priorityLevel, priorityScore, 'waiting', todayDateString(), ts, ts],
+      [
+        id,
+        referral.patient_id,
+        queueNumber,
+        priority.priority_level,
+        priority.priority_score,
+        priority.priority_band,
+        priority.severity_rank,
+        priority.severity_score,
+        priority.vulnerability_score,
+        priority.vulnerability_count,
+        JSON.stringify(priority.priority_reasons),
+        'waiting',
+        todayDateString(),
+        ts,
+        ts,
+      ],
     );
     const queueEntry = serializeRow(queueResult.rows[0]);
 
@@ -768,6 +865,7 @@ export async function approveReferralWithQueue({ id, userId, appointmentAt, prio
         reviewed_by_user_id: userId,
         reviewed_at: ts,
         appointment_at: normalizedAppointmentAt,
+        severity_level: severityLevel || referral.severity_level,
         patient_id: referral.patient_id,
         contact_number: patient?.contact_number,
         queue_entry_id: queueEntry.id,
@@ -787,6 +885,7 @@ export async function updateReferral(id, data) {
     payload.appointment_at = normalizeAppointmentAt(payload.appointment_at);
   }
   await updateRowById(TABLES.referrals, id, { ...payload, updated_at: nowIso() });
+  await recalculateQueuePriorities({ referralId: id });
   return getReferral(id);
 }
 
@@ -871,12 +970,84 @@ export async function archiveFinishedReferrals(healthCenterId) {
   return rows.map((row) => Number(row.id));
 }
 
+export async function recalculateQueuePriorities({ patientId, referralId } = {}) {
+  const params = [];
+  const clauses = [
+    `q.queue_status IN ('waiting', 'called')`,
+    `r.status = 'queued'`,
+  ];
+  if (patientId) {
+    params.push(Number(patientId));
+    clauses.push(`q.patient_id = $${params.length}`);
+  }
+  if (referralId) {
+    params.push(Number(referralId));
+    clauses.push(`q.referral_id = $${params.length}`);
+  }
+
+  const rows = await select(
+    `SELECT q.*, r.severity_level,
+            p.is_senior, p.is_pregnant, p.is_pwd, p.is_child,
+            p.is_infant, p.is_indigenous, p.is_solo_parent
+     FROM ${TABLES.queueEntries} q
+     JOIN ${TABLES.referrals} r ON r.id = q.referral_id
+     JOIN ${TABLES.patients} p ON p.id = q.patient_id
+     WHERE ${clauses.join(' AND ')}`,
+    params,
+  );
+
+  let updated = 0;
+  for (const row of rows) {
+    const calculated = calculateQueuePriority({
+      patient: row,
+      severity: row.severity_level,
+    });
+    const priority = queuePriorityColumns(calculated);
+    const currentReasons = Array.isArray(row.priority_reasons) ? row.priority_reasons : [];
+    const changed = Number(row.priority_score) !== priority.priority_score
+      || row.priority_level !== priority.priority_level
+      || row.priority_band !== priority.priority_band
+      || Number(row.severity_rank) !== priority.severity_rank
+      || Number(row.severity_score) !== priority.severity_score
+      || Number(row.vulnerability_score) !== priority.vulnerability_score
+      || Number(row.vulnerability_count) !== priority.vulnerability_count
+      || JSON.stringify(currentReasons) !== JSON.stringify(priority.priority_reasons);
+
+    if (!changed) continue;
+    await updateRowById(TABLES.queueEntries, row.id, {
+      ...priority,
+      priority_reasons: JSON.stringify(priority.priority_reasons),
+      updated_at: nowIso(),
+    });
+    updated += 1;
+  }
+  return updated;
+}
+
+function dedupeQueueEntries(entries) {
+  const statusRank = { waiting: 0, called: 1, served: 2, missed: 3, cancelled: 4, expired: 5 };
+  const byReferral = new Map();
+  for (const entry of entries) {
+    const key = Number(entry.referral_id) || `queue-${entry.id}`;
+    const current = byReferral.get(key);
+    if (!current) {
+      byReferral.set(key, entry);
+      continue;
+    }
+    const rankDiff = (statusRank[entry.queue_status] ?? 99) - (statusRank[current.queue_status] ?? 99);
+    if (rankDiff < 0 || (rankDiff === 0 && Number(entry.id) < Number(current.id))) {
+      byReferral.set(key, entry);
+    }
+  }
+  return [...byReferral.values()];
+}
+
 function enrichQueueEntries(queues, { referrals, patients, centers }) {
   const referralMap = new Map(referrals.map((r) => [Number(r.id), r]));
   const patientMap = new Map(patients.map((p) => [Number(p.id), p]));
   const centerMap = new Map(centers.map((c) => [Number(c.id), c]));
 
-  return queues
+  return dedupeQueueEntries(queues)
     .map((entry) => {
       const referral = referralMap.get(Number(entry.referral_id));
       if (!referral) return null; // only show queue rows tied to real referral records
@@ -891,6 +1062,7 @@ function enrichQueueEntries(queues, { referrals, patients, centers }) {
         tracking_code: referral.referral_code || null,
         referral_code: referral.referral_code,
         referral_status: referral.status,
+        severity_level: referral.severity_level || 'moderate',
         referral_id: referral.id,
         receiving_health_center_id: referral.receiving_health_center_id,
         referring_health_center_id: referral.referring_health_center_id,
@@ -948,6 +1120,7 @@ function queueDateKey(value) {
 /** Live queue rows joined to real referral records. */
 export async function listQueueEntries(filters = {}) {
   await expirePastQueueEntries();
+  await recalculateQueuePriorities();
   const window = resolveQueueDateWindow(filters);
   const statusFilter = filters.status && String(filters.status).toLowerCase() !== 'all'
     ? String(filters.status).toLowerCase()
@@ -1002,6 +1175,24 @@ export async function listQueueEntries(filters = {}) {
       && entry.referral_status !== 'rejected');
   }
 
+  const queueStatusOrder = { waiting: 0, called: 1, served: 2, missed: 3, cancelled: 4, expired: 5 };
+  rows = rows.sort((a, b) => {
+    const statusDiff = (queueStatusOrder[a.queue_status] ?? 99) - (queueStatusOrder[b.queue_status] ?? 99);
+    if (statusDiff !== 0) return statusDiff;
+    if (a.queue_status === 'waiting' || a.queue_status === 'called') {
+      return sortByPriority(a, b);
+    }
+    const dateCmp = queueDateKey(b.queue_date).localeCompare(queueDateKey(a.queue_date));
+    if (dateCmp !== 0) return dateCmp;
+    return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+  });
+
+  let waitingPosition = 0;
+  rows = rows.map((entry) => ({
+    ...entry,
+    queue_position: entry.queue_status === 'waiting' ? ++waitingPosition : null,
+  }));
+
   if (statusFilter) {
     rows = rows.filter((entry) => String(entry.queue_status).toLowerCase() === statusFilter);
   }
@@ -1009,7 +1200,8 @@ export async function listQueueEntries(filters = {}) {
     rows = rows.filter((entry) => String(entry.referral_status).toLowerCase() === referralStatusFilter);
   }
   if (priorityFilter) {
-    rows = rows.filter((entry) => String(entry.priority_level).toLowerCase() === priorityFilter);
+    rows = rows.filter((entry) => [entry.priority_band, entry.priority_level]
+      .some((value) => String(value || '').toLowerCase() === priorityFilter));
   }
   if (search) {
     rows = rows.filter((entry) => matchesSearch(entry.patient_name, search)
@@ -1020,17 +1212,9 @@ export async function listQueueEntries(filters = {}) {
       || matchesSearch(entry.referring_center_name, search)
       || matchesSearch(entry.receiving_center_name, search)
       || matchesSearch(entry.contact_number, search)
-      || matchesSearch(entry.referral_status, search));
+      || matchesSearch(entry.referral_status, search)
+      || matchesSearch(entry.priority_band, search));
   }
-
-  rows = rows.sort((a, b) => {
-    const activeA = a.referral_status === 'queued' ? 0 : 1;
-    const activeB = b.referral_status === 'queued' ? 0 : 1;
-    if (activeA !== activeB) return activeA - activeB;
-    const dateCmp = queueDateKey(b.queue_date).localeCompare(queueDateKey(a.queue_date));
-    if (dateCmp !== 0) return dateCmp;
-    return sortByPriority(a, b);
-  });
 
   const counts = rows.reduce((acc, entry) => {
     const key = entry.queue_status || 'unknown';
@@ -1634,11 +1818,19 @@ export async function computeQueuePosition(referralId) {
   const referral = await getReferral(referralId);
   if (!referral?.queue_number) return null;
 
+  await recalculateQueuePriorities();
   const today = todayDateString();
   const entries = await select(
-    `SELECT * FROM ${TABLES.queueEntries} WHERE queue_date = $1 AND queue_status IN ('waiting', 'called') ORDER BY priority_score DESC, created_at ASC`,
-    [today],
+    `SELECT q.*
+     FROM ${TABLES.queueEntries} q
+     JOIN ${TABLES.referrals} r ON r.id = q.referral_id
+     WHERE q.queue_date = $1
+       AND q.queue_status = 'waiting'
+       AND r.status = 'queued'
+       AND r.receiving_health_center_id = $2`,
+    [today, referral.receiving_health_center_id],
   );
+  entries.sort(sortByPriority);
 
   const index = entries.findIndex((e) => Number(e.referral_id) === Number(referralId));
   return index >= 0 ? index + 1 : null;
@@ -1802,16 +1994,27 @@ function resolvePublicTrackingStatus(referral) {
   };
 }
 
-export async function getPublicTracking(code) {
-  const referral = await findReferralByCode(code);
-  if (!referral) return null;
+function trackingClassificationLabels(referral) {
+  return [
+    referral.is_senior && 'Senior citizen',
+    referral.is_pregnant && 'Pregnant',
+    referral.is_pwd && 'PWD',
+    referral.is_child && 'Child',
+    referral.is_infant && 'Infant',
+    referral.is_indigenous && 'Indigenous (IP)',
+    referral.is_solo_parent && 'Solo parent',
+  ].filter(Boolean);
+}
 
+async function buildTrackingPayload(referral, { includePrivate = false } = {}) {
   const presentation = resolvePublicTrackingStatus(referral);
   const queuePosition = referral.status === 'queued'
     ? await computeQueuePosition(referral.id)
     : null;
+  const peopleAhead = Number.isInteger(queuePosition) ? Math.max(queuePosition - 1, 0) : null;
+  const classifications = trackingClassificationLabels(referral);
 
-  return {
+  const payload = {
     referral_code: referral.referral_code,
     tracking_code: referral.referral_code,
     status: presentation.display_status,
@@ -1826,14 +2029,80 @@ export async function getPublicTracking(code) {
     appointment_time: referral.appointment_at,
     rejection_reason: referral.rejection_reason,
     patient_name: `${referral.first_name || ''} ${referral.last_name || ''}`.trim(),
+    first_name: referral.first_name || null,
+    last_name: referral.last_name || null,
     receiving_center_name: referral.receiving_center_name,
+    referring_center_name: referral.referring_center_name,
+    checkup_location: referral.checkup_location || referral.receiving_center_name || null,
+    checkup_barangay: referral.checkup_barangay || null,
     queue_number: presentation.queue_label,
     queue_position: queuePosition,
+    people_ahead: peopleAhead,
     priority_level: referral.priority_level,
     priority_score: referral.priority_score,
+    priority_band: referral.priority_band,
+    priority_reasons: referral.priority_reasons || [],
+    severity_level: referral.severity_level || 'moderate',
+    severity_rank: referral.severity_rank ?? null,
+    severity_score: referral.severity_score ?? null,
+    vulnerability_score: referral.vulnerability_score ?? null,
+    vulnerability_count: referral.vulnerability_count ?? null,
+    clinical_urgency: referral.clinical_urgency || null,
+    referral_type: referral.referral_type || null,
+    referral_reason: referral.referral_reason || null,
+    created_at: referral.created_at || null,
+    reviewed_at: referral.reviewed_at || null,
+    completed_at: referral.completed_at || null,
     queue_status: presentation.is_expired ? 'expired' : (presentation.is_cancelled ? 'cancelled' : referral.queue_status),
     queue_date: referral.queue_date,
+    classifications,
+    is_senior: Boolean(referral.is_senior),
+    is_pregnant: Boolean(referral.is_pregnant),
+    is_pwd: Boolean(referral.is_pwd),
+    is_child: Boolean(referral.is_child),
+    is_infant: Boolean(referral.is_infant),
+    is_indigenous: Boolean(referral.is_indigenous),
+    is_solo_parent: Boolean(referral.is_solo_parent),
+    is_staff_view: false,
   };
+
+  if (!includePrivate) return payload;
+
+  return {
+    ...payload,
+    middle_name: referral.middle_name || null,
+    birth_date: referral.birth_date || null,
+    sex: referral.sex || null,
+    contact_number: referral.contact_number || null,
+    email: referral.email || null,
+    address: referral.address || null,
+    address2: referral.address2 || null,
+    city: referral.city || null,
+    province: referral.province || null,
+    postal_code: referral.postal_code || null,
+    home_barangay: referral.home_barangay || null,
+    emergency_contact_name: referral.emergency_contact_name || null,
+    emergency_contact_number: referral.emergency_contact_number || null,
+    medical_notes: referral.medical_notes || null,
+    patient_health_center_name: referral.patient_health_center_name || null,
+    patient_record_status: referral.patient_record_status || null,
+    patient_id: referral.patient_id || null,
+    is_staff_view: true,
+  };
+}
+
+export async function getPublicTracking(code) {
+  const referral = await findReferralByCode(code);
+  if (!referral) return null;
+  return buildTrackingPayload(referral, { includePrivate: false });
+}
+
+export async function getStaffTracking(referralOrCode) {
+  const referral = typeof referralOrCode === 'string'
+    ? await findReferralByCode(referralOrCode)
+    : referralOrCode;
+  if (!referral) return null;
+  return buildTrackingPayload(referral, { includePrivate: true });
 }
 
 /** Anonymous public board of everyone currently in the active queue. */
@@ -1844,24 +2113,31 @@ export async function getPublicActiveQueueBoard() {
   const activeRows = queue.filter((entry) => entry.referral_status === 'queued'
     && ['waiting', 'called'].includes(entry.queue_status));
 
-  const byDate = new Map();
+  const byDateAndCenter = new Map();
   for (const entry of activeRows) {
     const dateKey = queueDateKey(entry.queue_date) || today;
-    if (!byDate.has(dateKey)) byDate.set(dateKey, []);
-    byDate.get(dateKey).push(entry);
+    const groupKey = `${dateKey}:${entry.receiving_health_center_id || 'unknown'}`;
+    if (!byDateAndCenter.has(groupKey)) byDateAndCenter.set(groupKey, { queueDate: dateKey, rows: [] });
+    byDateAndCenter.get(groupKey).rows.push(entry);
   }
 
   const entries = [];
 
-  for (const [queueDate, rows] of byDate.entries()) {
-    const sorted = [...rows].sort((a, b) => sortByPriority(a, b));
-    sorted.forEach((entry, index) => {
+  for (const { queueDate, rows } of byDateAndCenter.values()) {
+    const sorted = [...rows].sort((a, b) => {
+      if (a.queue_status !== b.queue_status) return a.queue_status === 'waiting' ? -1 : 1;
+      return sortByPriority(a, b);
+    });
+    let waitingPosition = 0;
+    sorted.forEach((entry) => {
       entries.push({
         queue_date: queueDate,
-        queue_position: index + 1,
+        queue_position: entry.queue_status === 'waiting' ? ++waitingPosition : null,
         queue_number: entry.queue_number,
         queue_status: entry.queue_status,
         priority_level: entry.priority_level,
+        priority_band: entry.priority_band,
+        priority_score: entry.priority_score,
         anonymous_name: anonymizePatientLabel(entry.first_name, entry.last_name),
         receiving_center_name: entry.receiving_center_name || null,
         checkup_location: entry.checkup_location || entry.receiving_center_name || null,
@@ -1873,7 +2149,10 @@ export async function getPublicActiveQueueBoard() {
   entries.sort((a, b) => {
     const dateCmp = String(b.queue_date).localeCompare(String(a.queue_date));
     if (dateCmp !== 0) return dateCmp;
-    return a.queue_position - b.queue_position;
+    if (a.receiving_center_name !== b.receiving_center_name) {
+      return String(a.receiving_center_name).localeCompare(String(b.receiving_center_name));
+    }
+    return (a.queue_position ?? Number.MAX_SAFE_INTEGER) - (b.queue_position ?? Number.MAX_SAFE_INTEGER);
   });
 
   return {

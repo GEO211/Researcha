@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getAiCaseInsights } from '../lib/supabase/store.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
+import { getPatientDemandForecast } from '../services/forecastService.js';
 
 const router = Router();
 
@@ -61,6 +62,24 @@ router.get('/insights', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async
       message: 'Unable to generate AI insights from the database.',
       detail: error.message,
     });
+  }
+});
+
+router.get('/forecast', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (req, res, next) => {
+  try {
+    const forecast = await getPatientDemandForecast(req.user);
+    return res.json(forecast);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/forecast/refresh', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (req, res, next) => {
+  try {
+    const forecast = await getPatientDemandForecast(req.user, { force: true });
+    return res.json(forecast);
+  } catch (error) {
+    return next(error);
   }
 });
 

@@ -15,7 +15,16 @@ export function PageStack({ children, className = 'space-y-5', stagger = 0.1, re
 }
 
 export function PageBlock({ children, variant = popUp }) {
-  return <MotionItem variant={variant}>{children}</MotionItem>;
+  return (
+    <MotionDiv
+      initial="hidden"
+      animate="visible"
+      variants={variant}
+      transition={{ duration: 0.45, ease: easeOut }}
+    >
+      {children}
+    </MotionDiv>
+  );
 }
 
 export function AnimatedPanel({ children, className }) {
@@ -49,7 +58,7 @@ export function AnimatedTableRow({ index = 0, className = 'border-t border-slate
     <MotionTr
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: index * 0.04, ease: easeOut }}
+      transition={{ duration: 0.35, delay: Math.min(index, 12) * 0.04, ease: easeOut }}
       className={className}
       {...props}
     >

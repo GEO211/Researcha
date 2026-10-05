@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS queue_entries (
   queue_number VARCHAR(30) NOT NULL,
   priority_level VARCHAR(40) NOT NULL CHECK (priority_level IN ('priority_1_emergency', 'priority_2_vulnerable', 'priority_3_standard')),
   priority_score INT NOT NULL,
+  priority_band VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (priority_band IN ('critical', 'high', 'medium', 'normal')),
+  severity_rank INT NOT NULL DEFAULT 2,
+  severity_score INT NOT NULL DEFAULT 60,
+  vulnerability_score INT NOT NULL DEFAULT 0,
+  vulnerability_count INT NOT NULL DEFAULT 0,
+  priority_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
   queue_status VARCHAR(20) NOT NULL DEFAULT 'waiting' CHECK (queue_status IN ('waiting', 'called', 'served', 'missed', 'cancelled', 'expired')),
   queue_date DATE NOT NULL,
   called_at TIMESTAMPTZ,
@@ -114,6 +120,50 @@ CREATE TABLE IF NOT EXISTS queue_entries (
 
 CREATE INDEX IF NOT EXISTS idx_queue_date ON queue_entries (queue_date);
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_entries (queue_status);
+CREATE INDEX IF NOT EXISTS idx_queue_advanced_priority
+  ON queue_entries (queue_status, priority_score DESC, severity_rank DESC, vulnerability_count DESC, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS patient_forecasts (
+  id SERIAL PRIMARY KEY,
+  scope_key VARCHAR(120) NOT NULL,
+  scope_type VARCHAR(30) NOT NULL CHECK (scope_type IN ('receiving_center', 'referring_center', 'citywide')),
+  health_center_id INT REFERENCES health_centers(id),
+  forecast_date DATE NOT NULL,
+  predicted_patient_count INT NOT NULL CHECK (predicted_patient_count >= 0),
+  lower_bound INT NOT NULL CHECK (lower_bound >= 0),
+  upper_bound INT NOT NULL CHECK (upper_bound >= lower_bound),
+  hourly_forecast JSONB NOT NULL DEFAULT '[]'::jsonb,
+  severity_forecast JSONB NOT NULL DEFAULT '{}'::jsonb,
+  vulnerability_forecast JSONB NOT NULL DEFAULT '{}'::jsonb,
+  peak_start_hour INT,
+  peak_end_hour INT,
+  predicted_queue_load VARCHAR(20) NOT NULL CHECK (predicted_queue_load IN ('low', 'moderate', 'high', 'critical', 'unavailable')),
+  expected_peak_queue INT,
+  model_name VARCHAR(80) NOT NULL,
+  model_version VARCHAR(30) NOT NULL,
+  training_data_start DATE NOT NULL,
+  training_data_end DATE NOT NULL,
+  training_days INT NOT NULL,
+  source_record_count INT NOT NULL,
+  source_updated_at TIMESTAMPTZ,
+  confidence_status VARCHAR(30) NOT NULL,
+  validation_metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  explanation_factors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  actual_patient_count INT,
+  absolute_error NUMERIC(12,4),
+  squared_error NUMERIC(16,4),
+  absolute_percentage_error NUMERIC(12,4),
+  actual_updated_at TIMESTAMPTZ,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_patient_forecast_scope_date UNIQUE (scope_key, forecast_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patient_forecasts_scope_date
+  ON patient_forecasts (scope_key, forecast_date DESC);
+CREATE INDEX IF NOT EXISTS idx_patient_forecasts_accuracy
+  ON patient_forecasts (scope_key, actual_patient_count)
+  WHERE actual_patient_count IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS priority_rules (
   id SERIAL PRIMARY KEY,
@@ -200,3 +250,17 @@ CREATE TABLE IF NOT EXISTS evaluation_responses (
   comments TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS visit_ratings (
+  id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES patients(id),
+  referral_id INT NOT NULL REFERENCES referrals(id),
+  queue_entry_id INT REFERENCES queue_entries(id),
+  rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comments TEXT,
+  categories JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_visit_ratings_referral UNIQUE (referral_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visit_ratings_patient ON visit_ratings (patient_id);

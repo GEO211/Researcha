@@ -11,6 +11,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import PublicQueueBoard from './pages/PublicQueueBoard';
 import PatientHome from './pages/PatientHome';
+import PatientHistory from './pages/PatientHistory';
 import Patients from './pages/Patients';
 import Profile from './pages/Profile';
 import Queue from './pages/Queue';
@@ -42,6 +43,7 @@ function App() {
   const [emailLogs, setEmailLogs] = useState([]);
   const [patientFilters, setPatientFilters] = useState({ q: '', city: '', province: '', contact_number: '', email: '', health_center_id: '' });
   const [patientTracking, setPatientTracking] = useState(null);
+  const [trackCode, setTrackCode] = useState(pathTrackingCode);
   const [error, setError] = useState('');
   const [dataLoading, setDataLoading] = useState(false);
   const [dataReady, setDataReady] = useState(false);
@@ -72,6 +74,10 @@ function App() {
 
   const loadData = useCallback(async () => {
     if (!session) return;
+    if (isPatient) {
+      setDataReady(true);
+      return;
+    }
     setDataLoading(true);
     setError('');
 
@@ -88,21 +94,6 @@ function App() {
           return digits ? [[key, `+${digits}`]] : [];
         })),
       ).toString();
-
-      if (isPatient) {
-        const [summaryResult, trackingResult] = await Promise.allSettled([
-          api('/dashboard/summary'),
-          user?.tracking_code ? api(`/public/track/${encodeURIComponent(user.tracking_code)}`) : Promise.resolve(null),
-        ]);
-        if (summaryResult.status === 'fulfilled') setSummary(summaryResult.value);
-        const trackingData = trackingResult.status === 'fulfilled' ? trackingResult.value : null;
-        setPatientTracking(trackingData?.tracking || trackingData || summaryResult.value?.tracking || null);
-        if (summaryResult.status === 'rejected' && trackingResult.status === 'rejected') {
-          setError(summaryResult.reason?.message || 'Unable to load your care status.');
-        }
-        setDataReady(true);
-        return;
-      }
 
       const core = canManage
         ? await Promise.allSettled([
@@ -159,6 +150,7 @@ function App() {
       const reviewRequests = [
         canUseQueue ? api('/queue') : Promise.resolve({ queue: [] }),
         canViewAnalytics ? api('/analytics') : Promise.resolve({}),
+        canViewReferrals ? api(`/referrals${referralQuery ? `?${referralQuery}` : ''}`) : Promise.resolve({ referrals: [] }),
       ];
       const adminRequests = canManage
         ? [api('/users'), api('/sms-logs'), api('/audit-logs'), api('/email-logs'), api('/patients?limit=1000&include_archived=1')]
@@ -168,6 +160,7 @@ function App() {
       const [
         queueData,
         analyticsData,
+        referralSecondary,
         userData,
         smsLogData,
         auditLogData,
@@ -177,6 +170,7 @@ function App() {
 
       setQueue(queueData?.queue || []);
       setAnalytics(analyticsData || {});
+      if (canManage) setReferrals(referralSecondary?.referrals || []);
       setUsers(userData?.users || []);
       setSmsLogs(smsLogData?.logs || []);
       setAuditLogs(auditLogData?.logs || []);
@@ -296,7 +290,7 @@ function App() {
 
       <nav className={classNames('flex-1 space-y-1 overflow-y-auto py-3', sidebarOpen ? 'px-3' : 'px-2')}>
         {tabs.map((tab) => {
-          const Icon = tabIcon(tab.id);
+          const Icon = tabIcon(tab.id, role);
           const isActive = activeTab === tab.id;
 
           return (
@@ -380,7 +374,7 @@ function App() {
       <div className={classNames('transition-[padding] duration-200', sidebarOpen ? 'pl-64' : 'pl-14')}>
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur">
           <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-950">{tabLabel(activeTab)}</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-950">{tabLabel(activeTab, role)}</h2>
             <p className="hidden truncate text-sm text-slate-500 sm:block">
               {user.health_center_name || roleLabel(user.role)}
             </p>
@@ -397,10 +391,13 @@ function App() {
             </div>
           ) : null}
           {dataReady && activeTab === 'dashboard' && isPatient ? (
-            <PatientHome key="patient-home" user={user} tracking={patientTracking || summary.tracking} />
+            <PatientHome key="patient-home" user={user} onOpenHistory={() => selectTab('history')} />
           ) : null}
           {dataReady && activeTab === 'dashboard' && !isPatient ? (
             <Dashboard key="dashboard" summary={summary} canUseAi={can(PERMISSIONS.DASHBOARD_AI)} />
+          ) : null}
+          {dataReady && activeTab === 'history' && isPatient ? (
+            <PatientHistory key="patient-history" />
           ) : null}
           {dataReady && activeTab === 'patients' && canCreatePatients ? (
             <Patients
@@ -425,12 +422,21 @@ function App() {
               canCreate={canCreateReferrals}
               user={user}
               onRefresh={loadData}
+              onOpenTracking={(code) => {
+                setTrackCode(code);
+                setActiveTab('tracking');
+              }}
             />
           ) : null}
           {dataReady && activeTab === 'queue' && canUseQueue ? <Queue key="queue" user={user} onRefresh={loadData} /> : null}
           {dataReady && activeTab === 'analytics' && canViewAnalytics ? <Analytics key="analytics" analytics={analytics} /> : null}
-          {dataReady && activeTab === 'tracking' && canTrack ? (
-            <Tracking key="tracking" initialCode={user?.tracking_code || pathTrackingCode} />
+          {dataReady && activeTab === 'tracking' && canTrack && !isPatient ? (
+            <Tracking
+              key={`tracking-${trackCode || user?.tracking_code || pathTrackingCode || 'blank'}`}
+              initialCode={trackCode || user?.tracking_code || pathTrackingCode}
+              referrals={referrals}
+              user={user}
+            />
           ) : null}
           {dataReady && activeTab === 'profile' && can(PERMISSIONS.PROFILE_VIEW) ? <Profile key="profile" session={session} onSessionUpdate={setSession} /> : null}
           {dataReady && activeTab.startsWith('admin-') && canManage ? (

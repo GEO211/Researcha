@@ -10,9 +10,10 @@ import {
   PrimaryButton,
   TextInput,
   useConfirm,
+  Card,
 } from '../components/ui';
-import { formatDateTime, roleLabel } from '../components/helpers';
-import { normalizePhMobile } from '../lib/patientValidation';
+import { formatDate, formatDateTime, roleLabel } from '../components/helpers';
+import { ageFromBirthDate, normalizePhMobile } from '../lib/patientValidation';
 
 function issueMessage(error, field) {
   return error?.issues?.find((issue) => issue.field === field)?.message || '';
@@ -124,7 +125,68 @@ function AccountPhoto({ name, avatar, onChange }) {
   );
 }
 
-export default function Profile({ session, onSessionUpdate }) {
+function PatientProfile({ user }) {
+  const [profile, setProfile] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api('/patient/profile')
+      .then((data) => {
+        if (active) setProfile(data.profile);
+      })
+      .catch((err) => {
+        if (active) setError(err.message || 'Unable to load your profile.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const age = profile?.birth_date ? ageFromBirthDate(profile.birth_date) : null;
+
+  return (
+    <PageStack>
+      <PageBlock>
+        <Card title="Profile" icon={UserRound}>
+          {loading ? <p className="text-sm text-slate-500">Loading your profile…</p> : null}
+          {error ? <div className="rounded-2xl bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+          {profile ? (
+            <>
+              <h3 className="text-lg font-semibold text-slate-950">{profile.full_name || user.name}</h3>
+              <p className="text-sm text-slate-500">Patient ID {profile.id}</p>
+              {user?.tracking_code ? <p className="text-sm text-slate-500">Tracking code {user.tracking_code}</p> : null}
+              <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                {profile.contact_number ? (
+                  <Fact label="Contact" value={profile.contact_number} />
+                ) : null}
+                {profile.email ? <Fact label="Email" value={profile.email} /> : null}
+                {profile.birth_date ? (
+                  <Fact label="Birth date" value={`${formatDate(profile.birth_date)}${age != null ? ` · ${age} yrs` : ''}`} />
+                ) : null}
+                {profile.sex ? <Fact label="Sex" value={profile.sex} /> : null}
+                {profile.health_center_name ? <Fact label="Health center" value={profile.health_center_name} /> : null}
+                {profile.address || profile.city ? (
+                  <Fact
+                    label="Address"
+                    value={[profile.address, profile.address2, [profile.city, profile.province, profile.postal_code].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}
+                  />
+                ) : null}
+              </dl>
+              <p className="mt-4 text-xs text-slate-500">
+                Your patient account is linked to your tracking code. Ask your barangay health center to update your record.
+              </p>
+            </>
+          ) : null}
+        </Card>
+      </PageBlock>
+    </PageStack>
+  );
+}
+
+function StaffProfile({ session, onSessionUpdate }) {
   const confirm = useConfirm();
   const [account, setAccount] = useState(session.user);
   const [profile, setProfile] = useState({
@@ -392,4 +454,11 @@ export default function Profile({ session, onSessionUpdate }) {
       </PageBlock>
     </PageStack>
   );
+}
+
+export default function Profile({ session, onSessionUpdate }) {
+  if (session?.user?.role === 'patient') {
+    return <PatientProfile user={session.user} />;
+  }
+  return <StaffProfile session={session} onSessionUpdate={onSessionUpdate} />;
 }

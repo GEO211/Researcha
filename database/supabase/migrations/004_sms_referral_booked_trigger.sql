@@ -7,5 +7,8 @@ ALTER TABLE sms_logs ADD CONSTRAINT sms_logs_trigger_type_check
     'queue_call',
     'manual',
     'referral_completed',
-    'referral_booked'
+    'referral_booked',
+    'referral_cancelled',
+    'referral_rescheduled',
+    'referral_transferred'
   ));
