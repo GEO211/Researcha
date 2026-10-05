@@ -273,22 +273,6 @@ function ClinicReportsPanel({ analytics }) {
       <MotionReveal variant={fadeUp} delay={0.1}>
         <AbandonmentCard rate={abandonment} />
       </MotionReveal>
-
-      {(analytics.performance || []).length ? (
-        <MotionReveal variant={fadeUp} delay={0.12}>
-          <RankBarCard
-            title="API performance metrics"
-            rows={(analytics.performance || []).slice(0, 8).map((row) => ({
-              label: prettyLabel(row.operation),
-              count: Number(row.average_ms || 0),
-              detail: `max ${row.max_ms} ms · ${row.samples || 0} samples`,
-            }))}
-            valueKey="count"
-            suffix=" ms"
-            icon={Activity}
-          />
-        </MotionReveal>
-      ) : null}
     </div>
   );
 }
