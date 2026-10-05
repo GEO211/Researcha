@@ -7,6 +7,7 @@ import {
   exportSmsRows,
   getAnalyticsSummary,
 } from '../lib/supabase/store.js';
+import { getStaffRatingSummary } from '../lib/supabase/ratingStore.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 
 const router = Router();
@@ -23,8 +24,8 @@ function sendCsv(res, filename, rows, fallbackColumns) {
 
 router.get('/', authenticate, authorize(PERMISSIONS.ANALYTICS_VIEW), async (_req, res, next) => {
   try {
-    const data = await getAnalyticsSummary();
-    res.json(data);
+    const [data, ratings] = await Promise.all([getAnalyticsSummary(), getStaffRatingSummary()]);
+    res.json({ ...data, ratings });
   } catch (error) {
     next(error);
   }

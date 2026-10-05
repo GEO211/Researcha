@@ -15,6 +15,7 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import smsRoutes from './routes/smsRoutes.js';
 import publicRoutes from './routes/publicRoutes.js';
 import patientPortalRoutes from './routes/patientPortalRoutes.js';
+import ratingRoutes from './routes/ratingRoutes.js';
 import auditRoutes from './routes/auditRoutes.js';
 import emailRoutes from './routes/emailRoutes.js';
 import aiRoutes from './routes/aiRoutes.js';
@@ -87,6 +88,7 @@ app.use('/api/audit-logs', auditRoutes);
 app.use('/api/email-logs', emailRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/patient', patientPortalRoutes);
+app.use('/api/ratings', ratingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

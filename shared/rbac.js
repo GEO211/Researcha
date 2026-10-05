@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   AUDIT_VIEW: 'audit.view',
   ADMIN_LOGS: 'admin.logs',
   OFFLINE_SYNC: 'offline.sync',
+  RATINGS_VIEW: 'ratings.view',
+  RATINGS_MODERATE: 'ratings.moderate',
 };
 
 const P = PERMISSIONS;
@@ -51,6 +53,8 @@ const SUPER_ADMIN = [
   P.PROFILE_VIEW,
   P.PROFILE_UPDATE,
   P.OFFLINE_SYNC,
+  P.RATINGS_VIEW,
+  P.RATINGS_MODERATE,
 ];
 
 const CITY_HEALTH = [
@@ -71,6 +75,8 @@ const CITY_HEALTH = [
   P.SMS_SEND,
   P.EMAIL_VIEW,
   P.OFFLINE_SYNC,
+  P.RATINGS_VIEW,
+  P.RATINGS_MODERATE,
 ];
 
 const BARANGAY_STAFF = [
@@ -134,6 +140,7 @@ export const NAV_ITEMS = [
   { id: 'referrals', label: 'Referrals', anyOf: [P.REFERRALS_CREATE, P.REFERRALS_REVIEW] },
   { id: 'queue', label: 'Queue', permission: P.QUEUE_VIEW },
   { id: 'analytics', label: 'Analytics', permission: P.ANALYTICS_VIEW },
+  { id: 'ratings', label: 'Ratings & Feedback', permission: P.RATINGS_VIEW },
   { id: 'tracking', label: 'Tracking', anyOf: [P.TRACKING_VIEW, P.TRACKING_OWN] },
   { id: 'admin-users', label: 'Users', permission: P.USERS_MANAGE },
   { id: 'admin-centers', label: 'Health Centers', permission: P.CENTERS_MANAGE },
@@ -146,6 +153,7 @@ export const NAV_ITEMS = [
 export const PATIENT_NAV_ITEMS = [
   { id: 'dashboard', label: 'Queue Status', permission: P.DASHBOARD_VIEW },
   { id: 'history', label: 'History', permission: P.TRACKING_OWN },
+  { id: 'ratings', label: 'Ratings & Feedback', permission: P.TRACKING_OWN },
   { id: 'profile', label: 'Profile', permission: P.PROFILE_VIEW },
 ];
 

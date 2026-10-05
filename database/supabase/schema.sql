@@ -259,8 +259,12 @@ CREATE TABLE IF NOT EXISTS visit_ratings (
   rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
   comments TEXT,
   categories JSONB NOT NULL DEFAULT '{}'::jsonb,
+  internal_status VARCHAR(30) NOT NULL DEFAULT 'new',
+  reviewed_at TIMESTAMPTZ,
+  reviewed_by_user_id INT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uq_visit_ratings_referral UNIQUE (referral_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_visit_ratings_patient ON visit_ratings (patient_id);
+CREATE INDEX IF NOT EXISTS idx_visit_ratings_status ON visit_ratings (internal_status);

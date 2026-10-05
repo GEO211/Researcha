@@ -1,4 +1,4 @@
-import { Activity, Bell, Building2, ClipboardList, HeartPulse, History, LayoutDashboard, Mail, Settings, UserRound, Users } from 'lucide-react';
+import { Activity, Bell, Building2, ClipboardList, HeartPulse, History, LayoutDashboard, Mail, Settings, Star, UserRound, Users } from 'lucide-react';
 
 export function classNames(...items) {
   return items.filter(Boolean).join(' ');
@@ -30,6 +30,7 @@ export function tabLabel(tabId, role) {
     return {
       dashboard: 'Queue Status',
       history: 'History',
+      ratings: 'Ratings & Feedback',
       profile: 'Profile',
       tracking: 'Tracking',
     }[tabId] || tabId;
@@ -40,6 +41,7 @@ export function tabLabel(tabId, role) {
     referrals: 'Referrals',
     queue: 'Queue',
     analytics: 'Analytics',
+    ratings: 'Ratings & Feedback',
     tracking: 'Tracking',
     profile: 'Settings',
     admin: 'Admin',
@@ -88,6 +90,7 @@ export function tabIcon(tabId, role) {
     return {
       dashboard: Bell,
       history: History,
+      ratings: Star,
       profile: UserRound,
       tracking: HeartPulse,
     }[tabId] || Bell;
@@ -98,6 +101,7 @@ export function tabIcon(tabId, role) {
     referrals: ClipboardList,
     queue: Bell,
     analytics: Activity,
+    ratings: Star,
     tracking: HeartPulse,
     profile: Settings,
     admin: Settings,

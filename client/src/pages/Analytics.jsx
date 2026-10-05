@@ -10,6 +10,7 @@ import {
   MapPin,
   MessageSquare,
   Sparkles,
+  Star,
   Stethoscope,
   TrendingUp,
   Users,
@@ -163,6 +164,7 @@ function ClinicReportsPanel({ analytics }) {
   const completed = Number(completion.completed || 0);
   const missed = Number(completion.missed || 0);
   const completionRate = totalReferrals ? Math.round((completed / totalReferrals) * 100) : 0;
+  const ratings = analytics.ratings || {};
 
   return (
     <div className="space-y-5">
@@ -199,6 +201,21 @@ function ClinicReportsPanel({ analytics }) {
             detail={`Avg ${forecast.daily_average || 0}/day`}
             icon={BarChart3}
           />
+        </MotionItem>
+      </MotionStagger>
+
+      <MotionStagger className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" stagger={0.07}>
+        <MotionItem variant={popUp}>
+          <StatTile label="Average rating" value={ratings.average ?? 0} detail={`${ratings.total || 0} patient ratings`} icon={Star} decimals={1} />
+        </MotionItem>
+        <MotionItem variant={popUp}>
+          <StatTile label="Rating response rate" value={ratings.response_rate || 0} detail={`${ratings.rated_transactions || 0} of ${ratings.completed_transactions || 0} completed`} suffix="%" icon={Sparkles} />
+        </MotionItem>
+        <MotionItem variant={popUp}>
+          <StatTile label="5-star rate" value={ratings.five_star_percent || 0} detail="Share of submitted ratings" suffix="%" icon={Star} />
+        </MotionItem>
+        <MotionItem variant={popUp}>
+          <StatTile label="Low ratings" value={ratings.low_star_percent || 0} detail={`${ratings.needs_attention || 0} need attention`} suffix="%" icon={AlertTriangle} />
         </MotionItem>
       </MotionStagger>
 
@@ -478,7 +495,8 @@ function shortPlaceLabel(value) {
     .trim() || 'Unknown';
 }
 
-function StatTile({ label, value, detail, icon, suffix = '' }) {
+function StatTile({ label, value, detail, icon, suffix = '', decimals = 0 }) {
+  const numeric = Number(value || 0);
   return (
     <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm shadow-slate-200/50">
       <div className="mb-3 flex items-center gap-2">
@@ -488,7 +506,9 @@ function StatTile({ label, value, detail, icon, suffix = '' }) {
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       </div>
       <p className="text-3xl font-bold tabular-nums tracking-tight text-slate-950">
-        <CountUp to={Number(value || 0)} duration={1.2} />
+        {decimals
+          ? numeric.toFixed(decimals)
+          : <CountUp to={numeric} duration={1.2} />}
         {suffix}
       </p>
       <p className="mt-1 text-xs text-slate-500">{detail}</p>

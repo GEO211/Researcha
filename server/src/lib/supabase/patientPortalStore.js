@@ -1,6 +1,7 @@
 import { query, queryOne } from './query.js';
 import { sortByPriority, todayDateString, toDateString } from './helpers.js';
 import { getPatient } from './store.js';
+import { defaultInternalStatus, parseCategories, sanitizeCategories, serviceLabel } from '../../../../shared/visitRatings.js';
 
 const TABLES = {
   patients: 'patients',
@@ -56,6 +57,13 @@ export async function ensureVisitRatingsTable() {
     )
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_visit_ratings_patient ON ${TABLES.visitRatings} (patient_id)`);
+  await query(`ALTER TABLE ${TABLES.visitRatings} ADD COLUMN IF NOT EXISTS categories JSONB NOT NULL DEFAULT '{}'::jsonb`);
+  await query(`ALTER TABLE ${TABLES.visitRatings} ADD COLUMN IF NOT EXISTS internal_status VARCHAR(30) NOT NULL DEFAULT 'new'`);
+  await query(`ALTER TABLE ${TABLES.visitRatings} ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE ${TABLES.visitRatings} ADD COLUMN IF NOT EXISTS reviewed_by_user_id INT`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_visit_ratings_referral ON ${TABLES.visitRatings} (referral_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_visit_ratings_status ON ${TABLES.visitRatings} (internal_status)`);
+  await query(`UPDATE ${TABLES.visitRatings} SET internal_status = 'needs_attention' WHERE rating <= 2 AND internal_status = 'new'`);
   ratingsTableReady = true;
 }
 
@@ -221,6 +229,16 @@ function queueFromRow(row) {
   };
 }
 
+function publicRating(row) {
+  if (!row) return null;
+  return {
+    rating: Number(row.rating),
+    comments: row.comments || '',
+    categories: parseCategories(row.categories),
+    created_at: row.created_at,
+  };
+}
+
 function visitSummary(row, rating) {
   const queue = queueFromRow(row);
   const status = mapVisitStatus(row, queue);
@@ -245,19 +263,14 @@ function visitSummary(row, rating) {
     queue_number: queue?.queue_number || null,
     referral_reason: row.referral_reason || null,
     referral_type: row.referral_type || null,
+    service: serviceLabel(row.referral_type),
     clinical_urgency: row.clinical_urgency || null,
     status,
     status_label: statusLabel(status),
     referral_status: row.status,
     queue_status: queue?.queue_status || null,
     can_rate: canRate,
-    rating: rating
-      ? {
-        rating: Number(rating.rating),
-        comments: rating.comments || '',
-        created_at: rating.created_at,
-      }
-      : null,
+    rating: publicRating(rating),
   };
 }
 
@@ -445,6 +458,15 @@ export async function listPatientPortalHistory(user) {
   return rows.map((row) => visitSummary(row, ratings.get(Number(row.id))));
 }
 
+export async function listPatientRatings(user) {
+  const visits = await listPatientPortalHistory(user);
+  const completed = visits.filter((visit) => visit.status === 'completed' || RATEABLE_STATUSES.includes(visit.referral_status));
+  return {
+    awaiting: completed.filter((visit) => visit.can_rate),
+    rated: completed.filter((visit) => Boolean(visit.rating)),
+  };
+}
+
 export async function getPatientPortalVisit(user, code) {
   const patientId = Number(user.patient_id);
   const trackingCode = String(code || '').trim();
@@ -464,7 +486,7 @@ export async function getPatientPortalVisit(user, code) {
   };
 }
 
-export async function createPatientVisitRating(user, code, { rating, comments, categories } = {}) {
+export async function createPatientVisitRating(user, code, { rating, comments, categories: payloadCategories } = {}) {
   const visit = await getPatientPortalVisit(user, code);
   if (!visit) {
     const error = new Error('Visit not found.');
@@ -495,10 +517,13 @@ export async function createPatientVisitRating(user, code, { rating, comments, c
   }
 
   await ensureVisitRatingsTable();
+  const categories = sanitizeCategories(payloadCategories);
+  if (!categories.overall) categories.overall = score;
+  const internalStatus = defaultInternalStatus(score);
   try {
     const saved = serialize(await queryOne(
-      `INSERT INTO ${TABLES.visitRatings} (patient_id, referral_id, queue_entry_id, rating, comments, categories)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+      `INSERT INTO ${TABLES.visitRatings} (patient_id, referral_id, queue_entry_id, rating, comments, categories, internal_status)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
        RETURNING *`,
       [
         Number(user.patient_id),
@@ -506,17 +531,14 @@ export async function createPatientVisitRating(user, code, { rating, comments, c
         visit.queue_entry_id || null,
         score,
         String(comments || '').trim().slice(0, 1000) || null,
-        JSON.stringify(categories && typeof categories === 'object' ? categories : {}),
+        JSON.stringify(categories),
+        internalStatus,
       ],
     ));
 
-    return {
-      rating: Number(saved.rating),
-      comments: saved.comments || '',
-      created_at: saved.created_at,
-    };
+    return publicRating(saved);
   } catch (error) {
-    if (String(error.message || '').includes('uq_visit_ratings_referral')) {
+    if (error.code === '23505' || String(error.message || '').includes('uq_visit_ratings_referral')) {
       const duplicate = new Error('This visit already has a rating.');
       duplicate.status = 409;
       throw duplicate;

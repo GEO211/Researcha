@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, ChevronLeft, Circle, ClipboardList, History } from 'lucide-react';
 import { api } from '../api';
 import { classNames, formatDate, formatDateTime, formatTime } from '../components/helpers';
-import { SubmittedVisitRating, VisitRatingForm } from '../components/patient-visit-rating';
+import { StarValue, SubmittedVisitRating, VisitRatingForm } from '../components/patient-visit-rating';
 import { Card, PageBlock, PageStack, PrimaryButton, StatusBadge } from '../components/ui';
 
 function VisitTimeline({ timeline = [], progress = [] }) {
@@ -52,6 +52,18 @@ function VisitCard({ visit, onOpen }) {
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Queue number</dt>
             <dd className="font-medium text-slate-900">{visit.queue_number}</dd>
+          </div>
+        ) : null}
+        {visit.rating ? (
+          <div className="sm:col-span-2">
+            <dt className="text-xs uppercase tracking-wide text-slate-500">Rating</dt>
+            <dd className="mt-1 font-medium text-slate-900">
+              <span className="inline-flex items-center gap-2">
+                <StarValue value={visit.rating.rating} />
+                <span>{visit.rating.rating}/5</span>
+              </span>
+              {visit.rating.comments ? <p className="mt-1 text-sm text-slate-700">“{visit.rating.comments}”</p> : null}
+            </dd>
           </div>
         ) : null}
         {visit.referral_reason ? (

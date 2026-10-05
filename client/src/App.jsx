@@ -12,10 +12,12 @@ import Login from './pages/Login';
 import PublicQueueBoard from './pages/PublicQueueBoard';
 import PatientHome from './pages/PatientHome';
 import PatientHistory from './pages/PatientHistory';
+import PatientRatings from './pages/PatientRatings';
 import Patients from './pages/Patients';
 import Profile from './pages/Profile';
 import Queue from './pages/Queue';
 import Referrals from './pages/Referrals';
+import StaffRatings from './pages/StaffRatings';
 import Tracking from './pages/Tracking';
 import { PERMISSIONS, hasPermission, navigationForRole } from '@shared/rbac';
 import { phMobileDigits } from './lib/patientValidation';
@@ -66,6 +68,7 @@ function App() {
   const canViewReferrals = can(PERMISSIONS.REFERRALS_VIEW, PERMISSIONS.REFERRALS_CREATE, PERMISSIONS.REFERRALS_REVIEW);
   const canViewCenters = can(PERMISSIONS.CENTERS_VIEW, PERMISSIONS.CENTERS_MANAGE);
   const canViewAnalytics = can(PERMISSIONS.ANALYTICS_VIEW);
+  const canViewRatings = can(PERMISSIONS.RATINGS_VIEW);
   const canUseQueue = can(PERMISSIONS.QUEUE_VIEW);
   const canTrack = can(PERMISSIONS.TRACKING_VIEW, PERMISSIONS.TRACKING_OWN);
   const isPatient = role === 'patient';
@@ -399,6 +402,9 @@ function App() {
           {dataReady && activeTab === 'history' && isPatient ? (
             <PatientHistory key="patient-history" />
           ) : null}
+          {dataReady && activeTab === 'ratings' && isPatient ? (
+            <PatientRatings key="patient-ratings" />
+          ) : null}
           {dataReady && activeTab === 'patients' && canCreatePatients ? (
             <Patients
               key="patients"
@@ -430,6 +436,9 @@ function App() {
           ) : null}
           {dataReady && activeTab === 'queue' && canUseQueue ? <Queue key="queue" user={user} onRefresh={loadData} /> : null}
           {dataReady && activeTab === 'analytics' && canViewAnalytics ? <Analytics key="analytics" analytics={analytics} /> : null}
+          {dataReady && activeTab === 'ratings' && canViewRatings && !isPatient ? (
+            <StaffRatings key="staff-ratings" />
+          ) : null}
           {dataReady && activeTab === 'tracking' && canTrack && !isPatient ? (
             <Tracking
               key={`tracking-${trackCode || user?.tracking_code || pathTrackingCode || 'blank'}`}

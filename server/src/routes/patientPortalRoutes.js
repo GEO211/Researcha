@@ -8,6 +8,7 @@ import {
   getPatientPortalQueueStatus,
   getPatientPortalVisit,
   listPatientPortalHistory,
+  listPatientRatings,
 } from '../lib/supabase/patientPortalStore.js';
 
 const router = Router();
@@ -24,6 +25,13 @@ function assertPatient(req, res) {
 const ratingSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5),
   comments: z.string().trim().max(1000).optional().nullable(),
+  categories: z.object({
+    staff: z.coerce.number().int().min(1).max(5).optional(),
+    service: z.coerce.number().int().min(1).max(5).optional(),
+    waiting_time: z.coerce.number().int().min(1).max(5).optional(),
+    cleanliness: z.coerce.number().int().min(1).max(5).optional(),
+    overall: z.coerce.number().int().min(1).max(5).optional(),
+  }).optional(),
 });
 
 router.get('/profile', authenticate, requirePatient, async (req, res, next) => {
@@ -42,6 +50,16 @@ router.get('/queue-status', authenticate, requirePatient, async (req, res, next)
     if (!assertPatient(req, res)) return;
     const payload = await getPatientPortalQueueStatus(req.user);
     if (!payload) return res.status(404).json({ message: 'Patient record not found.' });
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/ratings', authenticate, requirePatient, async (req, res, next) => {
+  try {
+    if (!assertPatient(req, res)) return;
+    const payload = await listPatientRatings(req.user);
     return res.json(payload);
   } catch (error) {
     return next(error);
