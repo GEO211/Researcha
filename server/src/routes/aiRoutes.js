@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getAiCaseInsights } from '../lib/supabase/store.js';
+import { listPhilippineDatasets } from '../../../shared/philippineDatasets.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 import { getPatientDemandForecast } from '../services/forecastService.js';
 
@@ -40,6 +41,16 @@ router.get('/health', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (
       python: 'offline',
     });
   }
+});
+
+router.get('/datasets', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), (_req, res) => {
+  const datasets = listPhilippineDatasets();
+  return res.json({
+    geography: 'Philippines',
+    focus: 'Koronadal City, South Cotabato, SOCCSKSARGEN',
+    count: datasets.length,
+    datasets,
+  });
 });
 
 router.get('/insights', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (req, res) => {

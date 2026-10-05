@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api, downloadCsv } from '../api';
 import { classNames } from '../components/helpers';
+import { PhilippineDatasetsPanel } from '../components/ai/PhilippineDatasetsPanel';
 import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
   AnimatedGrid,
@@ -443,6 +444,8 @@ function AiIntelligencePanel() {
           <MotionReveal variant={fadeUp} delay={0.1}>
             <RankBarCard title="Reason themes" rows={themeRows.slice(0, 8)} icon={Sparkles} />
           </MotionReveal>
+
+          <PhilippineDatasetsPanel context={aiInsights.philippine_context} />
 
           {aiInsights.recommendations?.length ? (
             <Card title="AI Recommendations" icon={Sparkles}>

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { classNames } from '../components/helpers';
+import { PhilippineDatasetsPanel } from '../components/ai/PhilippineDatasetsPanel';
 import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
   Card,
@@ -493,6 +494,8 @@ function AiAnalyticsPanel() {
               </MotionItem>
             </MotionStagger>
           </MotionReveal>
+
+          <PhilippineDatasetsPanel context={aiInsights.philippine_context} />
 
           {aiInsights.recommendations?.length ? (
             <Card title="AI Recommendations" icon={Sparkles}>

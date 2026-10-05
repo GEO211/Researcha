@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import math
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
+
+from philippine_context import build_philippine_context
 
 STOPWORDS = {
     "a", "an", "the", "and", "or", "of", "to", "for", "in", "on", "at", "with",
@@ -198,16 +200,29 @@ def analyze_cases(rows: list[dict[str, Any]], overload_z: float = 1.0) -> dict[s
         themes = ", ".join(item["theme"] for item in most_cases["reason_themes"][:5])
         narrative.append(f"Frequent case themes in referral reasons: {themes}.")
 
+    philippine = build_philippine_context(
+        barangay_rows=hotspots["by_barangay"],
+        reason_text=" ".join(reasons),
+        at=now,
+    )
+
+    recommendations = _build_recommendations(hotspots, overloaded_places, most_cases)
+    for tip in philippine["recommendations"][:2]:
+        if tip not in recommendations:
+            recommendations.append(tip)
+
     return {
         "generated_at": now.isoformat(),
         "model": "carelink-case-intelligence-v1",
         "runtime": "python-3.14.3-serverless",
+        "reference_datasets": "philippines",
         "total_cases": total,
         "summary": " ".join(narrative),
         "hotspots": hotspots,
         "overloaded_places": overloaded_places,
         "most_cases": most_cases,
-        "recommendations": _build_recommendations(hotspots, overloaded_places, most_cases),
+        "philippine_context": philippine,
+        "recommendations": recommendations,
     }
 
 

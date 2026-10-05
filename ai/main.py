@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from insights import analyze_cases
+from philippine_context import list_philippine_datasets
 
 load_dotenv()
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "server", ".env"))
@@ -116,12 +117,24 @@ def fetch_case_rows(days: int) -> list[dict[str, Any]]:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, str | int]:
     return {
         "status": "ok",
         "service": "CareLink AI Insights",
         "runtime": "python-3.14.3",
         "data_source": "database",
+        "philippine_datasets": len(list_philippine_datasets()),
+    }
+
+
+@app.get("/datasets")
+def get_datasets() -> dict[str, Any]:
+    datasets = list_philippine_datasets()
+    return {
+        "geography": "Philippines",
+        "focus": "Koronadal City, South Cotabato, SOCCSKSARGEN",
+        "count": len(datasets),
+        "datasets": datasets,
     }
 
 

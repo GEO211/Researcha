@@ -1,6 +1,7 @@
 import { phMobileDigits } from '../patientRules.js';
 import { query, queryOne, withTransaction } from './query.js';
 import { calculateQueuePriority } from '../../../../shared/queuePriority.js';
+import { buildPhilippineAiContext } from '../../../../shared/philippineDatasets.js';
 import {
   EXPIRABLE_REFERRAL_STATUSES,
   getHealthCenterMap,
@@ -2370,6 +2371,11 @@ export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
     );
   }
 
+  const philippineContext = buildPhilippineAiContext({
+    barangayRows: hotspots.by_barangay,
+    reasonText: reasons.join(' '),
+  });
+
   const recommendations = [];
   if (hotspots.by_barangay[0]) {
     const top = hotspots.by_barangay[0];
@@ -2391,6 +2397,9 @@ export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
   if (mostCases.reason_themes[0]) {
     recommendations.push(`Review care pathways related to recurring theme: ${mostCases.reason_themes[0].theme}.`);
   }
+  for (const tip of philippineContext.recommendations.slice(0, 2)) {
+    if (!recommendations.includes(tip)) recommendations.push(tip);
+  }
 
   return {
     generated_at: new Date().toISOString(),
@@ -2398,6 +2407,7 @@ export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
     runtime: 'supabase-postgres',
     source: 'database',
     data_source: 'supabase',
+    reference_datasets: 'philippines',
     window_days: useWindow ? windowDays : null,
     scope: useWindow ? `last_${windowDays}_days` : 'all_referrals',
     total_cases: total,
@@ -2405,6 +2415,7 @@ export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
     hotspots,
     overloaded_places: overloadedPlaces,
     most_cases: mostCases,
+    philippine_context: philippineContext,
     recommendations: recommendations.length
       ? recommendations
       : ['Not enough referral data yet for actionable AI recommendations.'],
