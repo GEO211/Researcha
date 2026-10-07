@@ -49,8 +49,8 @@ const categories = [
   },
   {
     id: 'forecast',
-    label: 'Advanced AI Patient Forecasting',
-    description: 'Advanced AI patient-demand forecasting from historical registrations.',
+    label: 'Predictive Queue Volume Forecasting',
+    description: 'Predictive queue volume from historical registrations.',
     icon: TrendingUp,
   },
 ];

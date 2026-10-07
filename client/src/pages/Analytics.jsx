@@ -66,8 +66,8 @@ const categories = [
   },
   {
     id: 'forecast',
-    label: 'AI Patient Forecast',
-    description: 'Future patient volume, peak hours, severity mix, and queue demand.',
+    label: 'Predictive Queue Volume Forecasting',
+    description: 'Future queue volume, peak hours, and demand.',
     icon: TrendingUp,
   },
 ];

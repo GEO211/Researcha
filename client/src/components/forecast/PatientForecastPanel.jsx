@@ -519,7 +519,7 @@ export function PatientForecastPanel() {
 
   return (
     <div className="space-y-5">
-      <Card title="AI Patient Demand Forecast" icon={BrainCircuit}>
+      <Card title="Predictive Queue Volume Forecasting" icon={BrainCircuit}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
             <p className="text-sm leading-relaxed text-slate-600">
