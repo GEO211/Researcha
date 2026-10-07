@@ -784,13 +784,13 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                     <p className="mb-3 text-sm font-medium text-emerald-900">Quick patient registration</p>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <Field label="First name" error={patientFieldErrors.first_name}>
-                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.first_name)} required />
+                        <TextInput value={quickPatient.first_name} onChange={(event) => updateQuickPatient('first_name', event.target.value)} allowNumbers={false} minLength={3} aria-invalid={Boolean(patientFieldErrors.first_name)} required />
                       </Field>
                       <Field label="Middle name" error={patientFieldErrors.middle_name}>
                         <TextInput value={quickPatient.middle_name} onChange={(event) => updateQuickPatient('middle_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.middle_name)} />
                       </Field>
                       <Field label="Last name" error={patientFieldErrors.last_name}>
-                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(patientFieldErrors.last_name)} required />
+                        <TextInput value={quickPatient.last_name} onChange={(event) => updateQuickPatient('last_name', event.target.value)} allowNumbers={false} minLength={3} aria-invalid={Boolean(patientFieldErrors.last_name)} required />
                       </Field>
                       <Field label="Birth date" error={patientFieldErrors.birth_date}>
                         <TextInput type="date" value={quickPatient.birth_date} onChange={(event) => updateQuickPatient('birth_date', event.target.value)} aria-invalid={Boolean(patientFieldErrors.birth_date)} required />
@@ -859,7 +859,7 @@ function ReferralForm({ patients, healthCenters, user, onCreated }) {
                       <PrimaryButton
                         type="button"
                         className="w-full sm:w-auto"
-                        disabled={registeringPatient || !quickPatient.first_name || !quickPatient.last_name || !quickPatient.birth_date || !quickPatient.address || !normalizePhMobile(quickPatient.contact_number)}
+                        disabled={registeringPatient || quickPatient.first_name.trim().length < 3 || quickPatient.last_name.trim().length < 3 || !quickPatient.birth_date || !quickPatient.address || !normalizePhMobile(quickPatient.contact_number)}
                         onClick={registerPatient}
                       >
                         Register & select patient

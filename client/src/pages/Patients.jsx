@@ -266,13 +266,13 @@ function PatientForm({ onCreated, healthCenters, user }) {
     <Card title="Patient Registration" icon={Users}>
       <form onSubmit={submit} className="grid gap-3 md:grid-cols-2" noValidate>
         <Field label="First name" error={fieldErrors.first_name}>
-          <TextInput value={form.first_name} onChange={(event) => update('first_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(fieldErrors.first_name)} required />
+          <TextInput value={form.first_name} onChange={(event) => update('first_name', event.target.value)} allowNumbers={false} minLength={3} aria-invalid={Boolean(fieldErrors.first_name)} required />
         </Field>
         <Field label="Middle name" error={fieldErrors.middle_name}>
           <TextInput value={form.middle_name} onChange={(event) => update('middle_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(fieldErrors.middle_name)} />
         </Field>
         <Field label="Last name" error={fieldErrors.last_name}>
-          <TextInput value={form.last_name} onChange={(event) => update('last_name', event.target.value)} allowNumbers={false} aria-invalid={Boolean(fieldErrors.last_name)} required />
+          <TextInput value={form.last_name} onChange={(event) => update('last_name', event.target.value)} allowNumbers={false} minLength={3} aria-invalid={Boolean(fieldErrors.last_name)} required />
         </Field>
         <Field label="Birth date" error={fieldErrors.birth_date}>
           <TextInput type="date" value={form.birth_date} onChange={(event) => update('birth_date', event.target.value)} aria-invalid={Boolean(fieldErrors.birth_date)} required />
@@ -495,10 +495,10 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
             <Field label="First name" error={fieldErrors.first_name}>
-              <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} allowNumbers={false} aria-invalid={Boolean(fieldErrors.first_name)} required />
+              <TextInput value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} allowNumbers={false} minLength={3} aria-invalid={Boolean(fieldErrors.first_name)} required />
             </Field>
             <Field label="Last name" error={fieldErrors.last_name}>
-              <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} allowNumbers={false} aria-invalid={Boolean(fieldErrors.last_name)} required />
+              <TextInput value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} allowNumbers={false} minLength={3} aria-invalid={Boolean(fieldErrors.last_name)} required />
             </Field>
             <Field label="Birth date" error={fieldErrors.birth_date}>
               <TextInput

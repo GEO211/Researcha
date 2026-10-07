@@ -81,6 +81,7 @@ export function validatePatientForm(form, { requireContact = false } = {}) {
   const emergencyName = collapseName(form.emergency_contact_name);
 
   if (!first_name) setError(errors, 'first_name', 'First name is required.');
+  else if (first_name.length < 3) setError(errors, 'first_name', 'First name must be at least 3 characters.');
   else if (!NAME_PATTERN.test(first_name)) setError(errors, 'first_name', 'First name can only contain letters, spaces, hyphens, apostrophes, or periods.');
 
   if (middle_name && !NAME_PATTERN.test(middle_name)) {
@@ -88,6 +89,7 @@ export function validatePatientForm(form, { requireContact = false } = {}) {
   }
 
   if (!last_name) setError(errors, 'last_name', 'Last name is required.');
+  else if (last_name.length < 3) setError(errors, 'last_name', 'Last name must be at least 3 characters.');
   else if (!NAME_PATTERN.test(last_name)) setError(errors, 'last_name', 'Last name can only contain letters, spaces, hyphens, apostrophes, or periods.');
 
   if (!birth_date) setError(errors, 'birth_date', 'Birth date is required.');

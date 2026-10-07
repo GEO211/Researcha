@@ -1,0 +1,10 @@
+Staff performance counts referrals each staff member reviewed.
+
+A referral is included only when it has a reviewer (reviewed_by_user_id). That user is the staff name.
+
+For each staff member:
+- Reviewed = number of referrals they reviewed
+- Approved = those referrals now queued, completed, missed, or archived
+- Rejected = those referrals with status rejected
+
+The Staff performance chart shows Reviewed, and only the top 8 staff.

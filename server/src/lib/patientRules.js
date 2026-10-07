@@ -62,6 +62,10 @@ function requiredName(label) {
       ctx.addIssue({ code: 'custom', message: `${label} is required.` });
       return;
     }
+    if (value.length < 3) {
+      ctx.addIssue({ code: 'custom', message: `${label} must be at least 3 characters.` });
+      return;
+    }
     if (value.length > 100) {
       ctx.addIssue({ code: 'custom', message: `${label} is too long.` });
       return;
