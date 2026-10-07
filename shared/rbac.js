@@ -138,13 +138,13 @@ export const NAV_ITEMS = [
   { id: 'referrals', label: 'Referrals', anyOf: [P.REFERRALS_CREATE, P.REFERRALS_REVIEW] },
   { id: 'queue', label: 'Queue', permission: P.QUEUE_VIEW },
   { id: 'analytics', label: 'Analytics', permission: P.ANALYTICS_VIEW },
-  { id: 'ratings', label: 'Ratings & Feedback', permission: P.RATINGS_VIEW },
   { id: 'tracking', label: 'Tracking', anyOf: [P.TRACKING_VIEW, P.TRACKING_OWN] },
   { id: 'admin-users', label: 'Users', permission: P.USERS_MANAGE },
   { id: 'admin-centers', label: 'Health Centers', permission: P.CENTERS_MANAGE },
   { id: 'admin-sms', label: 'SMS Logs', permission: P.ADMIN_LOGS },
   { id: 'admin-email', label: 'Email Logs', permission: P.ADMIN_LOGS },
   { id: 'admin-audit', label: 'Audit Logs', permission: P.AUDIT_VIEW },
+  { id: 'ratings', label: 'Ratings & Feedback', permission: P.RATINGS_VIEW },
   { id: 'profile', label: 'Settings', permission: P.PROFILE_VIEW },
 ];
 
