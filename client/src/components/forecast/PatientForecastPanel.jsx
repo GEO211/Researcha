@@ -11,6 +11,8 @@ import {
   Users,
 } from 'lucide-react';
 import { api } from '../../api';
+import { HourlyAnalysisPanel } from '../ai/HourlyAnalysisPanel';
+import { RealTrainingExplanation } from '../ai/RealTrainingExplanation';
 import {
   Card,
   MotionItem,
@@ -90,43 +92,69 @@ function BarRows({ rows, valueKey = 'value', suffix = '' }) {
   );
 }
 
+function addDays(isoDate, days) {
+  const date = new Date(`${String(isoDate).slice(0, 10)}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function continuousDays(rows, valueFor) {
+  if (!rows.length) return [];
+  const byDate = new Map(rows.map((row) => [String(row.date).slice(0, 10), row]));
+  const first = String(rows[0].date).slice(0, 10);
+  const last = String(rows[rows.length - 1].date).slice(0, 10);
+  const filled = [];
+  for (let date = first; date <= last; date = addDays(date, 1)) {
+    filled.push(valueFor(date, byDate.get(date)));
+  }
+  return filled;
+}
+
 function ForecastTrendChart({ actual = [], forecasts = [] }) {
-  const actualRows = actual.slice(-14).map((row) => ({
-    date: row.date,
-    value: Number(row.actual || 0),
-    lower: Number(row.actual || 0),
-    upper: Number(row.actual || 0),
+  const history = (actual.length > 30 ? actual.slice(-30) : actual);
+  const actualRows = continuousDays(history, (date, row) => ({
+    date,
+    value: Number(row?.actual || 0),
+    lower: Number(row?.actual || 0),
+    upper: Number(row?.actual || 0),
     type: 'actual',
   }));
-  const forecastRows = forecasts.map((row) => ({
-    date: row.date,
-    value: Number(row.expected || 0),
-    lower: Number(row.lower || 0),
-    upper: Number(row.upper || 0),
+  const forecastRows = continuousDays(forecasts, (date, row) => ({
+    date,
+    value: Number(row?.expected || 0),
+    lower: Number(row?.lower || 0),
+    upper: Number(row?.upper || 0),
     type: 'forecast',
   }));
   const rows = [...actualRows, ...forecastRows];
   if (!rows.length) return <p className="text-sm text-slate-500">No daily demand data yet.</p>;
 
-  const slot = 58;
-  const padding = { left: 36, right: 16, top: 36, bottom: 48 };
-  const width = padding.left + padding.right + rows.length * slot;
-  const height = 320;
+  const padding = { left: 36, right: 8, top: 28, bottom: 78 };
+  const width = 1100;
+  const height = 360;
+  const plotWidth = width - padding.left - padding.right;
+  const slot = plotWidth / rows.length;
   const values = rows.flatMap((row) => [row.value, row.upper || 0]);
   const max = Math.max(...values, 1);
   const plotHeight = height - padding.top - padding.bottom;
   const y = (value) => height - padding.bottom - ((Number(value || 0) / max) * plotHeight);
-  const barWidth = 22;
+  const barWidth = Math.max(6, Math.min(16, slot * 0.55));
+  const spanLabel = `${formatDate(rows[0].date)} – ${formatDate(rows[rows.length - 1].date)}`;
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap gap-4 text-xs text-slate-600">
-        <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-slate-700" />Actual day</span>
-        <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-cyan-600" />Forecast day</span>
-        <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-cyan-100 ring-1 ring-cyan-200" />Daily range</span>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+        <div className="flex flex-wrap gap-4">
+          <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-slate-700" />Actual day</span>
+          <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-cyan-600" />Forecast day</span>
+          <span className="flex items-center gap-2"><span className="h-2.5 w-3 rounded-sm bg-cyan-100 ring-1 ring-cyan-200" />Daily range</span>
+        </div>
+        <span className="font-medium text-slate-700">{actualRows.length} days · {spanLabel}</span>
       </div>
-      <div className="overflow-x-auto rounded-2xl bg-slate-50 p-3">
-        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-full" style={{ minWidth: `${width}px`, height: '320px' }}>
+      <div className="rounded-2xl bg-slate-50 p-3">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label={`Daily referrals from ${spanLabel}`}>
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
             <g key={ratio}>
               <line
@@ -137,23 +165,23 @@ function ForecastTrendChart({ actual = [], forecasts = [] }) {
                 stroke="#e2e8f0"
                 strokeWidth="1"
               />
-              <text x="6" y={y(max * ratio) + 4} fontSize="10" fill="#64748b">{Math.round(max * ratio)}</text>
+              <text x="4" y={y(max * ratio) + 4} fontSize="11" fill="#64748b">{Math.round(max * ratio)}</text>
             </g>
           ))}
           {actualRows.length && forecastRows.length ? (
             <g>
               <line
                 x1={padding.left + actualRows.length * slot}
-                y1={padding.top - 8}
+                y1={padding.top - 6}
                 x2={padding.left + actualRows.length * slot}
                 y2={height - padding.bottom}
                 stroke="#0891b2"
                 strokeDasharray="3 4"
               />
               <text
-                x={padding.left + actualRows.length * slot + 8}
+                x={padding.left + actualRows.length * slot + 6}
                 y="16"
-                fontSize="10"
+                fontSize="11"
                 fontWeight="700"
                 fill="#0e7490"
               >
@@ -168,15 +196,16 @@ function ForecastTrendChart({ actual = [], forecasts = [] }) {
             const upperY = y(row.upper);
             const lowerY = y(row.lower);
             const isForecast = row.type === 'forecast';
+            const labelY = height - padding.bottom + 14;
             return (
               <g key={`${row.type}-${row.date}`}>
                 {isForecast && row.upper !== row.lower ? (
                   <rect
-                    x={center - 7}
+                    x={center - barWidth * 0.35}
                     y={upperY}
-                    width="14"
+                    width={barWidth * 0.7}
                     height={Math.max(2, lowerY - upperY)}
-                    rx="7"
+                    rx="4"
                     fill="#cffafe"
                   />
                 ) : null}
@@ -184,18 +213,26 @@ function ForecastTrendChart({ actual = [], forecasts = [] }) {
                   x={barX}
                   y={valueY}
                   width={barWidth}
-                  height={Math.max(3, y(0) - valueY)}
-                  rx="6"
+                  height={Math.max(2, y(0) - valueY)}
+                  rx="3"
                   fill={isForecast ? '#0891b2' : '#334155'}
-                />
-                <text x={center} y={valueY - 8} textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">
-                  {row.value}
-                </text>
-                <text x={center} y={height - 28} textAnchor="middle" fontSize="10" fontWeight="700" fill="#334155">
-                  {formatWeekday(row.date)}
-                </text>
-                <text x={center} y={height - 14} textAnchor="middle" fontSize="10" fill="#64748b">
-                  {formatDate(row.date)}
+                >
+                  <title>{`${formatWeekday(row.date)} ${formatDate(row.date)}: ${row.value}`}</title>
+                </rect>
+                {row.value > 0 ? (
+                  <text x={center} y={Math.max(padding.top, valueY - 4)} textAnchor="middle" fontSize="9" fontWeight="700" fill="#0f172a">
+                    {row.value}
+                  </text>
+                ) : null}
+                <text
+                  x={center}
+                  y={labelY}
+                  textAnchor="end"
+                  fontSize="9"
+                  fill="#334155"
+                  transform={`rotate(-55 ${center} ${labelY})`}
+                >
+                  {formatWeekday(row.date)} {formatDate(row.date)}
                 </text>
               </g>
             );
@@ -326,7 +363,6 @@ function AvailableForecast({ forecast }) {
     label: formatHour(row.hour),
     value: row.expected,
   }));
-  const accuracy = forecast.accuracy || {};
   const priorityMentions = vulnerabilityRows.reduce((sum, row) => sum + Number(row.value || 0), 0);
 
   const centerRows = (forecast.referring_centers || []).map((row) => ({
@@ -437,34 +473,6 @@ function AvailableForecast({ forecast }) {
         </Card>
       </div>
 
-      <Card title="Model validation" icon={BrainCircuit}>
-        <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Selected model" value={forecast.model?.name?.replaceAll('_', ' ') || '—'} />
-          <Metric label="Confidence" value={forecast.model?.confidence_status?.replaceAll('_', ' ') || 'Limited'} />
-          <Metric label="Baseline MAE" value={forecast.model?.validation?.baseline?.mae ?? '—'} />
-          <Metric label="Advanced MAE" value={forecast.model?.validation?.advanced?.mae ?? '—'} />
-        </dl>
-        {tomorrow?.explanationFactors?.length ? (
-          <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm text-slate-600">
-            {tomorrow.explanationFactors.map((factor) => <li key={factor}>{factor}</li>)}
-          </ul>
-        ) : null}
-      </Card>
-
-      <Card title="Forecast performance" icon={Activity}>
-        {accuracy.available ? (
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="Forecast pairs" value={accuracy.samples} />
-            <Metric label="MAE" value={accuracy.mae} />
-            <Metric label="RMSE" value={accuracy.rmse} />
-            <Metric label="MAPE" value={accuracy.mape == null ? '—' : `${accuracy.mape}%`} />
-          </dl>
-        ) : (
-          <p className="text-sm text-slate-600">
-            Accuracy metrics will appear after at least 7 stored forecasts can be compared with completed-day actual counts.
-          </p>
-        )}
-      </Card>
     </div>
   );
 }
@@ -482,6 +490,7 @@ export function PatientForecastPanel() {
   const [forecast, setForecast] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [trainingOpen, setTrainingOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -519,26 +528,34 @@ export function PatientForecastPanel() {
 
   return (
     <div className="space-y-5">
+      <HourlyAnalysisPanel />
       <Card title="Predictive Queue Volume Forecasting" icon={BrainCircuit}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
             <p className="text-sm leading-relaxed text-slate-600">
-              CareLink AI compares a historical-mean baseline with a weekday-trend model, then writes an operational briefing from the winning forecast. No future patient identities are generated.
+              The hourly card above is the learned model: it scores each completed hour, predicts the next 1, 3, 6, and 24 hours, and stores the result. The sections below are the separate 7-day demand view.
             </p>
             {generatedLabel ? <p className="mt-1 text-xs text-slate-400">Generated {generatedLabel}</p> : null}
           </div>
+          <div className="flex flex-wrap gap-2">
+          <PrimaryButton type="button" onClick={() => setTrainingOpen((current) => !current)}>
+            {trainingOpen ? 'Hide AI training' : 'How the AI was trained'}
+          </PrimaryButton>
           <PrimaryButton type="button" disabled={loading} onClick={refreshForecast}>
             <span className="inline-flex items-center gap-2">
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               {loading ? 'Analyzing…' : 'Refresh forecast'}
             </span>
           </PrimaryButton>
+          </div>
         </div>
         {error ? (
           <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
         ) : null}
         {!forecast && loading ? <p className="mt-4 text-sm text-slate-500">Loading historical demand data…</p> : null}
       </Card>
+
+      <RealTrainingExplanation open={trainingOpen} onToggle={() => setTrainingOpen((current) => !current)} />
 
       {forecast ? (
         <MotionReveal variant={fadeUp}>

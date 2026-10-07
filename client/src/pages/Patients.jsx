@@ -288,7 +288,7 @@ function PatientForm({ onCreated, healthCenters, user }) {
           <PhPhoneInput value={form.contact_number} onChange={(event) => update('contact_number', event.target.value)} aria-invalid={Boolean(fieldErrors.contact_number)} />
         </Field>
         <Field label="Email" error={fieldErrors.email}>
-          <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="Optional for email reminders" aria-invalid={Boolean(fieldErrors.email)} />
+          <TextInput type="email" value={form.email} onChange={(event) => update('email', event.target.value)} placeholder="name@gmail.com" aria-invalid={Boolean(fieldErrors.email)} />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2 md:col-span-2">
           <Field label="Emergency contact name" error={fieldErrors.emergency_contact_name}>
@@ -517,7 +517,7 @@ function PatientList({ patients, healthCenters, user, filters, setFilters, onRef
               <PhPhoneInput value={form.contact_number} onChange={(event) => setForm({ ...form, contact_number: event.target.value })} aria-invalid={Boolean(fieldErrors.contact_number)} />
             </Field>
             <Field label="Email" error={fieldErrors.email}>
-              <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} aria-invalid={Boolean(fieldErrors.email)} />
+              <TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="name@gmail.com" aria-invalid={Boolean(fieldErrors.email)} />
             </Field>
             <Field label="Address 1" error={fieldErrors.address}>
               <SearchableSelect

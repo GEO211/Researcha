@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api, downloadCsv } from '../api';
 import { classNames, formatDate } from '../components/helpers';
+import { HourlyAnalysisPanel } from '../components/ai/HourlyAnalysisPanel';
 import { PhilippineDatasetsPanel } from '../components/ai/PhilippineDatasetsPanel';
 import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
@@ -364,6 +365,7 @@ function AiIntelligencePanel() {
 
   return (
     <div className="space-y-5">
+      <HourlyAnalysisPanel />
       <Card title="AI Case Intelligence" icon={BrainCircuit}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-2xl text-sm text-slate-600">

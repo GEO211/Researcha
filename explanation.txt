@@ -1,0 +1,141 @@
+CareLink hourly predictive AI
+Checked 7 October 2026 against the live Supabase database.
+
+AI purpose
+CareLink moves patients from barangay health centers to the Koronadal City health center. Arrival volume is uneven across the day. The hourly job estimates how many new referrals the next hours will bring, compares the hour that just finished with history, and flags an hour that is far outside the model's normal error. Staff can use that on the dashboard without leaving a browser open. The job runs on the API server.
+
+Hourly process
+Every hour at minute 05, Asia/Manila:
+
+Every hour
+    -> Collect referral rows from Postgres
+    -> Build a zero-filled hourly series
+    -> Load the saved model (train only if none exists, or if enough new rows have arrived)
+    -> Score the completed hour
+    -> Predict the next 1, 3, 6, and 24 hours
+    -> Compare with the previous hour, yesterday, last week, and the clock-hour average
+    -> Mark an anomaly when the residual is large
+    -> Write a plain-language insight
+    -> Insert one row for that hour
+    -> The dashboard reads the row
+
+The completed hour is the one that just ended. At 8:05 PM the job analyzes 7:00–8:00 PM and predicts from 8:00 PM forward.
+
+Model
+Algorithm: scikit-learn HistGradientBoostingRegressor.
+This is histogram-based gradient boosting. It fits an ensemble of regression trees on tabular features. It is not a rules list and it is not a chatbot.
+
+Training method:
+- Target for each hour: referrals whose created_at falls in that hour, Philippine time.
+- Hours with no referrals stay in the series as zero. Dropping them would teach the model that every hour is busy.
+- The first 168 hours only supply lag features. Later hours are trainable.
+- The last 168 trainable hours are the holdout. The model is fit on the earlier rows only.
+- A candidate replaces the saved model only when its holdout MAE is less than or equal to the saved model's MAE.
+
+Features, all known before the hour being predicted:
+- hour of day, day of week, weekend flag
+- arrivals 1, 2, 3, 24, and 168 hours earlier
+- mean arrivals over the previous 24 and 168 hours
+- emergency count, urgent count, and distinct referring locations in the previous hour
+
+Target: referral count in the hour.
+
+Evaluation, measured on 7 October 2026 from the live database:
+- Training rows: 924
+- Holdout rows: 168
+- Hourly buckets: 1,260 (16 August 2026 08:00 through 7 October 2026 19:00)
+- Model MAE: 0.262 referrals per hour
+- Model RMSE: 0.672
+- Hour-of-day average MAE: 0.329
+- Hour-of-day average RMSE: 0.661
+- Confidence: 0.204
+
+Confidence is skill against the hour-of-day average: 1 - (model MAE / baseline MAE), clipped to 0–0.99. The boosted model is more accurate on absolute error than "what this clock hour usually does," but RMSE is close to that baseline. Confidence stays low on purpose. Most hours are zero, so a large confidence number would overstate what 543 referrals can support.
+
+Saved model file: ai/models/hourly_volume.joblib
+Version on first train: hgb-v1
+
+Dataset
+Name: CareLink referrals
+Source: the application's Postgres table referrals, joined to health_centers for the referring barangay or center name.
+URL: the project database (Supabase). This is not a downloaded public file.
+License: operational data for this CareLink system, not a public-dataset license.
+Records measured 7 October 2026: 543 referrals, 421 hours with at least one arrival, 53 calendar days, 1,260 hourly buckets after zero-filling.
+Columns used: created_at, clinical_urgency, referral_type, severity_level, status, referring location.
+
+Public hospital-arrival datasets were reviewed and not imported. An emergency-department series from another country would not be Koronadal barangay-to-city referrals. Mixing it into training would make the dashboard look more confident than this queue's own history allows. The live history is already long enough to fit the model. Future retraining uses new CareLink referrals only.
+
+GitHub source
+Repository: scikit-learn
+URL: https://github.com/scikit-learn/scikit-learn
+License: BSD-3-Clause
+What was adapted: the library's HistGradientBoostingRegressor estimator. CareLink supplies the hourly table, the lag features, the holdout split, and the hourly job. No application repository was copied in.
+Why this one: next-hour referral volume is a small tabular regression problem. Gradient boosting learns non-linear relationships between clock time, recent lags, and urgency mix. Prophet and a neural forecaster need heavier stacks and would not be more honest on 543 events. The older daily forecast in server/src/services/forecastEngine.js is a seasonal mean. It is still used by Predictive Queue Volume Forecasting. The hourly pipeline is separate and is the learned model.
+
+Hourly scheduler
+Scheduler: node-cron inside the CareLink API process (server/src/services/reminderScheduler.js).
+Analyze trigger: minute 05 of every hour, timezone Asia/Manila (APP_TIMEZONE).
+Train trigger: 00:20 every day, same timezone.
+On API startup the analyze command also runs once, so a restart catches the current hour if it was missed.
+The child process is `py -3 ai/hourly_job.py analyze`. It keeps running when no browser is open. Closing the dashboard does not stop it.
+
+Duplicate execution: ai_hourly_analysis.period_start is unique. If that hour already has status success, the job logs "already analyzed" and exits. A Postgres advisory lock stops two overlapping runs from training at the same time.
+
+Server restart: the in-memory process is gone, the saved model file and the analysis rows remain. Startup runs analyze again. A completed hour is not inserted twice.
+
+Failed analysis: the Python process logs the error, writes a row with status failed, and exits non-zero. The Node server stays up. The next hour can retry. A failed row for the same period can be replaced. A successful row is left as-is. The dashboard shows the latest successful row and, if a later hour failed, the error text.
+
+Retraining
+Hourly analysis is not hourly training.
+
+Analyze (every hour): load ai/models/hourly_volume.joblib, score new hours, save the report.
+Train (daily at 00:20, and also when the saved model is missing): fit a new booster, compare holdout MAE with the saved model, replace the file only if the new MAE is better.
+
+There is one extra path so new operations are not ignored for a full day. If at least 12 hours have passed since the last train and at least 48 new referral rows exist, the hourly job trains before it scores. It still keeps the old model when the new one is worse.
+
+Prediction
+The saved booster predicts one hour at a time. Features for that hour use only earlier hours. The next hour uses actual history. Each later hour appends the predicted count and repeats, up to 24 hours. The headline prediction is the next hour. prediction_3h, prediction_6h, and prediction_24h are sums of those steps. Sums are expected referral counts, not probabilities.
+
+On the first saved run, 7 October 2026 7:00–8:00 PM had 0 referrals. The next hour was predicted at 0.0, the next 6 hours at about 0.04, and the next 24 hours at 16.87. That matches a quiet evening and a daily total near the recent rate. It is not a placeholder.
+
+Anomaly detection
+For the completed hour the model predicts the count it expected from prior hours. The residual is actual minus that prediction. The anomaly score is abs(residual) / holdout RMSE. An hour is an anomaly only when the score is at least 2.5 and the residual is at least 3 referrals. The second rule avoids calling a 0-versus-1 hour an anomaly in a sparse series. The first saved hour was not an anomaly.
+
+A warning is stored when the hour is an anomaly, or when the next-hour prediction is above the 95th percentile of that same clock hour and above the clock-hour average by at least 2 referrals.
+
+AI insights
+Insights are sentences filled from the computed comparisons. They are not generated by a language model. The template states the completed hour's count, the change versus the same hour yesterday, the historical average for that clock hour, the trend word, and the next-hour prediction. Trend is increasing, decreasing, stable, or unusual. Unusual is used when the anomaly rule fires. Otherwise the label follows the change from the previous hour, and a change under 1 referral and under 15% stays stable.
+
+Database
+Table: ai_hourly_analysis
+Migration: database/supabase/migrations/018_ai_hourly_analysis.sql
+One row per completed hour (unique period_start).
+Important columns: analysis_time, period_start, period_end, status, error_message, records_analyzed, current_value, prediction, prediction_3h, prediction_6h, prediction_24h, confidence, trend, anomaly_detected, anomaly_score, insight, recommendation, alert_level, model_version, model_metrics, comparisons, series, created_at.
+series is the chart: recent actual hours, the clock-hour historical average, one-step model predictions, anomaly flags, and the next 6 predicted hours.
+
+API
+GET /api/ai/hourly/latest
+GET /api/ai/hourly/history?limit=48
+Both require the same dashboard AI permission as the other AI routes.
+latest returns the newest successful analysis, the next run time, and last_error when a newer hour failed.
+history returns successful rows, newest first.
+
+Frontend
+The hourly analysis is the first card on Predictive Queue Volume Forecasting (Dashboard and Analytics).
+It is also on Dashboard → AI Analytics and Analytics → AI Intelligence.
+It shows last run, next run, trend, next-hour prediction, 3/6/24 hour sums, confidence, anomaly state, insight, recommendation, a chart of actuals, predictions, historical average, and anomaly points, plus a history table.
+The page reloads the saved rows every 5 minutes. That refresh does not run the model. The model runs on the server.
+
+Debug terminal output
+server/.env contains AI_DEBUG=false.
+Set AI_DEBUG=true and the Python job prints the dataset it gathered: row count, columns, first and last timestamps, a few referral samples, and the hourly buckets. AI_DEBUG=false prints only the one-line result (saved, already analyzed, or failed). Do not leave debug on in normal use. Samples include referring location and urgency, not a full patient record.
+
+Limitations
+- The series is citywide referral creations, not beds, lab results, or individual risk.
+- 543 events over 1,260 hours means many zeros. Next-hour predictions are often below 1. The 24-hour sum is the more stable figure.
+- Confidence is about 20% skill over the clock-hour average. The model is useful as a learned baseline, not as a precise headcount.
+- Recursive multi-hour forecasts drift. The 24-hour sum is an expectation, not a scheduled appointment list.
+- Holdout RMSE is close to the simple clock-hour baseline. If a retrained model does not improve MAE, the previous file stays in service.
+- The first 7 days of history cannot be scored as a full lag-168 sample.
+- The scheduler runs only while the API process is running. A stopped server does not analyze until it starts again; startup then fills the current hour.
+- No external dataset is mixed in. When the clinics record more referrals, the daily train can replace hgb-v1 only if the new holdout MAE is better.

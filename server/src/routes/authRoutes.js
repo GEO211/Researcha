@@ -7,6 +7,7 @@ import { normalizePhMobile } from '../lib/patientRules.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { audit } from '../services/auditService.js';
 import { PERMISSIONS, permissionsForRole } from '../../../shared/rbac.js';
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '../../../shared/emailProviders.js';
 
 const router = Router();
 
@@ -170,6 +171,15 @@ router.patch('/me', authenticate, authorize(PERMISSIONS.PROFILE_UPDATE), async (
           message: 'Enter a PH mobile number (+639XXXXXXXXX).',
         }]);
       }
+    }
+
+    const currentEmail = String(existing.email || '').trim().toLowerCase();
+    if (data.email.trim().toLowerCase() !== currentEmail && !isRecognizedEmail(data.email)) {
+      throw new z.ZodError([{
+        code: 'custom',
+        path: ['email'],
+        message: EMAIL_PROVIDER_MESSAGE,
+      }]);
     }
 
     const emailOwner = await findUserByEmail(data.email);

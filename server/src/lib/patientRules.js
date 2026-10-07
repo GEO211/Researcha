@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '../../../shared/emailProviders.js';
 
 const NAME_PATTERN = /^[\p{L}\p{M}\s.'-]+$/u;
 const POSTAL_PATTERN = /^\d{4}$/;
@@ -98,7 +99,10 @@ export const patientSchema = z.object({
   contact_number: optionalText(30),
   email: z.preprocess(
     (value) => normalizeEmail(value),
-    z.union([z.null(), z.string().email('Enter a valid email address.')]).optional(),
+    z.union([
+      z.null(),
+      z.string().email('Enter a valid email address.').refine(isRecognizedEmail, EMAIL_PROVIDER_MESSAGE),
+    ]).optional(),
   ),
   address: z.preprocess(
     (value) => collapseName(value),

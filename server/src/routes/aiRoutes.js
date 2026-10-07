@@ -4,6 +4,7 @@ import { getAiCaseInsights } from '../lib/supabase/store.js';
 import { listPhilippineDatasets } from '../../../shared/philippineDatasets.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
 import { getPatientDemandForecast } from '../services/forecastService.js';
+import { getLatestHourlyAnalysis, listHourlyAnalyses } from '../lib/supabase/hourlyAnalysisStore.js';
 
 const router = Router();
 
@@ -81,6 +82,27 @@ router.get('/forecast', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async
     const forecast = await getPatientDemandForecast(req.user);
     return res.json(forecast);
   } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/hourly/latest', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (_req, res, next) => {
+  try {
+    return res.json(await getLatestHourlyAnalysis());
+  } catch (error) {
+    if (error?.code === '42P01') {
+      return res.json({ analysis: null, next_analysis_at: null, last_error: null });
+    }
+    return next(error);
+  }
+});
+
+router.get('/hourly/history', authenticate, authorize(PERMISSIONS.DASHBOARD_AI), async (req, res, next) => {
+  try {
+    const analyses = await listHourlyAnalyses(req.query.limit);
+    return res.json({ analyses });
+  } catch (error) {
+    if (error?.code === '42P01') return res.json({ analyses: [] });
     return next(error);
   }
 });

@@ -5,6 +5,7 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { createUser, getHealthCenter, getUser, listUsers, updateUser } from '../lib/supabase/store.js';
 import { audit } from '../services/auditService.js';
 import { PERMISSIONS } from '../../../shared/rbac.js';
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '../../../shared/emailProviders.js';
 
 const router = Router();
 
@@ -53,6 +54,9 @@ async function assignmentError(role, healthCenterId) {
 router.post('/', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (req, res, next) => {
   try {
     const data = userSchema.required({ password: true }).parse(req.body);
+    if (!isRecognizedEmail(data.email)) {
+      return res.status(400).json({ message: EMAIL_PROVIDER_MESSAGE });
+    }
     const invalid = await assignmentError(data.role, data.health_center_id);
     if (invalid) return res.status(invalid.status).json({ message: invalid.message });
     const password = await bcrypt.hash(data.password, 10);
@@ -73,6 +77,10 @@ router.patch('/:id', authenticate, authorize(PERMISSIONS.USERS_MANAGE), async (r
 
     if (!existing) {
       return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (data.email && data.email.toLowerCase() !== String(existing.email || '').toLowerCase() && !isRecognizedEmail(data.email)) {
+      return res.status(400).json({ message: EMAIL_PROVIDER_MESSAGE });
     }
 
     const nextRole = data.role || existing.role;

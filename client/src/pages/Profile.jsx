@@ -14,6 +14,7 @@ import {
 } from '../components/ui';
 import { formatDate, formatDateTime, roleLabel } from '../components/helpers';
 import { ageFromBirthDate, normalizePhMobile } from '../lib/patientValidation';
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '@shared/emailProviders';
 
 function issueMessage(error, field) {
   return error?.issues?.find((issue) => issue.field === field)?.message || '';
@@ -241,8 +242,16 @@ function StaffProfile({ session, onSessionUpdate }) {
     setFieldErrors({});
 
     const contact = String(profile.contact_number || '').trim();
+    const nextErrors = {};
     if (contact && !normalizePhMobile(contact)) {
-      setFieldErrors({ contact_number: 'Enter a PH mobile number (+639XXXXXXXXX).' });
+      nextErrors.contact_number = 'Enter a PH mobile number (+639XXXXXXXXX).';
+    }
+    const emailChanged = profile.email.trim().toLowerCase() !== String(session.user.email || '').trim().toLowerCase();
+    if (emailChanged && !isRecognizedEmail(profile.email)) {
+      nextErrors.email = EMAIL_PROVIDER_MESSAGE;
+    }
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
       return;
     }
 
@@ -393,7 +402,7 @@ function StaffProfile({ session, onSessionUpdate }) {
                 <TextInput value={profile.name} onChange={(event) => updateProfile({ name: event.target.value })} required />
               </Field>
               <Field label="Email" error={fieldErrors.email}>
-                <TextInput type="email" autoComplete="email" value={profile.email} onChange={(event) => updateProfile({ email: event.target.value })} required />
+                <TextInput type="email" autoComplete="email" value={profile.email} onChange={(event) => updateProfile({ email: event.target.value })} placeholder="name@gmail.com" required />
               </Field>
               <Field label="Contact" error={fieldErrors.contact_number} hint="Philippine mobile number.">
                 <PhPhoneInput

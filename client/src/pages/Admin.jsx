@@ -17,6 +17,7 @@ import { formatDateTime, roleLabel } from '../components/helpers';
 import PatientDirectory from './AdminPatients';
 import { KORONADAL_BARANGAYS, barangayAddressLabel, barangayHealthCenterName } from '../data/koronadalBarangays';
 import { normalizePhMobile } from '../lib/patientValidation';
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '@shared/emailProviders';
 
 export default function Admin({ section = 'users', users, patients = [], healthCenters, smsLogs, emailLogs, auditLogs, onRefresh }) {
   return (
@@ -85,6 +86,10 @@ function UserManagement({ users, healthCenters, onRefresh }) {
       setFormError('Enter a valid email address.');
       return;
     }
+    if (!isRecognizedEmail(form.email)) {
+      setFormError(EMAIL_PROVIDER_MESSAGE);
+      return;
+    }
     if (!form.password || form.password.length < 8) {
       setFormError('Password must be at least 8 characters.');
       return;
@@ -120,6 +125,13 @@ function UserManagement({ users, healthCenters, onRefresh }) {
 
   async function saveEdit(event) {
     event.preventDefault();
+    setFormError('');
+    const original = users.find((user) => Number(user.id) === Number(editing.id));
+    const emailChanged = String(editing.email || '').trim().toLowerCase() !== String(original?.email || '').trim().toLowerCase();
+    if (emailChanged && !isRecognizedEmail(editing.email)) {
+      setFormError(EMAIL_PROVIDER_MESSAGE);
+      return;
+    }
     const confirmed = await confirm({
       title: 'Update user?',
       message: `Save changes for ${editing.name}?`,
@@ -167,7 +179,8 @@ function UserManagement({ users, healthCenters, onRefresh }) {
       {editing ? (
         <form onSubmit={saveEdit} className="mb-5 grid gap-3 rounded-2xl bg-slate-50 p-4 md:grid-cols-3">
           <Field label="Name"><TextInput value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} required /></Field>
-          <Field label="Email"><TextInput type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required /></Field>
+          <Field label="Email"><TextInput type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} placeholder="name@gmail.com" required /></Field>
+          {formError ? <p className="text-sm font-medium text-red-600 md:col-span-3">{formError}</p> : null}
           <Field label="New password"><TextInput type="password" value={editing.password || ''} onChange={(e) => setEditing({ ...editing, password: e.target.value })} placeholder="Leave blank to keep" /></Field>
           <Field label="Role">
             <SelectInput value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
@@ -195,7 +208,7 @@ function UserManagement({ users, healthCenters, onRefresh }) {
 
       <form onSubmit={submit} className="mb-5 grid gap-3 md:grid-cols-3" noValidate>
         <Field label="Name"><TextInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
-        <Field label="Email"><TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></Field>
+        <Field label="Email"><TextInput type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="name@gmail.com" required /></Field>
         <Field label="Password"><TextInput type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></Field>
         <Field label="Role">
           <SelectInput value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value, health_center_id: '' })}>
@@ -219,7 +232,7 @@ function UserManagement({ users, healthCenters, onRefresh }) {
           </SelectInput>
         </Field>
         <div className="flex items-end md:col-span-3"><PrimaryButton>Create user</PrimaryButton></div>
-        {formError ? <p className="text-sm font-medium text-red-600 md:col-span-3">{formError}</p> : null}
+        {!editing && formError ? <p className="text-sm font-medium text-red-600 md:col-span-3">{formError}</p> : null}
       </form>
       {actionError ? <p className="mb-3 text-sm font-medium text-red-600">{actionError}</p> : null}
       <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white">

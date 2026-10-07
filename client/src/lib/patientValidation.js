@@ -1,3 +1,5 @@
+import { EMAIL_PROVIDER_MESSAGE, isRecognizedEmail } from '@shared/emailProviders';
+
 const NAME_PATTERN = /^[\p{L}\p{M}\s.'-]+$/u;
 const POSTAL_PATTERN = /^\d{4}$/;
 
@@ -119,6 +121,8 @@ export function validatePatientForm(form, { requireContact = false } = {}) {
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     setError(errors, 'email', 'Enter a valid email address.');
+  } else if (email && !isRecognizedEmail(email)) {
+    setError(errors, 'email', EMAIL_PROVIDER_MESSAGE);
   }
 
   if (!address) setError(errors, 'address', 'Select the patient barangay.');

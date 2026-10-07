@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { classNames, formatDate } from '../components/helpers';
+import { HourlyAnalysisPanel } from '../components/ai/HourlyAnalysisPanel';
 import { PhilippineDatasetsPanel } from '../components/ai/PhilippineDatasetsPanel';
 import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
@@ -332,6 +333,7 @@ function AiAnalyticsPanel() {
 
   return (
     <div className="space-y-5">
+      <HourlyAnalysisPanel />
       <Card title="AI Analytics" icon={BrainCircuit}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="max-w-2xl text-sm text-slate-500">
@@ -343,7 +345,7 @@ function AiAnalyticsPanel() {
         </div>
 
         {aiError ? (
-          <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {aiError}
           </p>
         ) : null}
