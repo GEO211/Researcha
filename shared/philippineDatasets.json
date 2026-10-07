@@ -1,138 +1,342 @@
 {
+  "checked_on": "2026-10-07",
   "datasets": [
     {
-      "id": "psa-2020-geography",
-      "title": "PSA 2020 census geography",
+      "id": "psa-2024-geography",
+      "series": "psa-geography",
+      "title": "Latest official population",
       "publisher": "Philippine Statistics Authority",
-      "year": 2020,
+      "year": 2024,
+      "as_of": "2024-07-01",
       "geography": "Philippines, Region XII, South Cotabato, Koronadal City",
-      "description": "Official 1 May 2020 population for the country, SOCCSKSARGEN, South Cotabato, and Koronadal City.",
-      "source_url": "https://psa.gov.ph/content/2020-census-population-and-housing-2020-cph-population-counts-declared-official-president",
-      "source_note": "National total from PSA Proclamation coverage of the 2020 CPH. Region XII and South Cotabato household counts from PSA RSSO XII Special Release 2022-SR-R1263-002. Koronadal city total from the same census as compiled by PhilAtlas from PSA tables.",
+      "description": "Newest official census count as of the 7 October 2026 catalog check. No later census has been declared.",
+      "source_url": "https://pia.gov.ph/news/soccsksargens-population-now-at-4-46-million-psa-reports/",
+      "source_note": "2024 Census of Population, reference date 1 July 2024, declared official by Proclamation No. 973 (11 July 2025). Region XII and South Cotabato figures are the PSA counts reported by the Philippine Information Agency. Checked 7 October 2026.",
       "records": [
         {
           "name": "Philippines",
-          "population_2020": 109035343,
-          "population_2024": 112729484,
-          "as_of": "2024-07-01"
+          "population_2024": 112729484
         },
         {
           "name": "SOCCSKSARGEN (Region XII)",
-          "population_2020": 4360974,
-          "as_of": "2020-05-01"
+          "population_2024": 4462776
         },
         {
           "name": "South Cotabato",
-          "population_2020": 975476,
-          "household_population_2020": 973146,
-          "households_2020": 244987,
-          "as_of": "2020-05-01",
-          "share_of_region_percent": 22.36
+          "population_2024": 1010009
         },
         {
           "name": "Koronadal City",
-          "population_2020": 195398,
           "population_2024": 201844,
-          "population_2015": 174942,
           "barangays": 27,
           "households_2024": 50814,
           "area_km2": 277,
-          "role": "Provincial capital and SOCCSKSARGEN regional center",
-          "as_of": "2024-07-01"
+          "role": "Provincial capital and SOCCSKSARGEN regional center"
         }
-      ]
+      ],
+      "checked_on": "2026-10-07"
     },
     {
       "id": "psa-2020-koronadal-barangays",
+      "series": "psa-koronadal-barangays",
       "title": "Koronadal barangay population",
       "publisher": "Philippine Statistics Authority",
       "year": 2020,
+      "as_of": "2020-05-01",
       "geography": "Koronadal City, South Cotabato",
       "description": "2020 census population for all 27 Koronadal barangays, used to turn raw referral counts into cases per 1,000 residents.",
       "source_url": "https://www.philatlas.com/mindanao/r12/south-cotabato/koronadal.html",
       "source_note": "Barangay counts are the PSA 2020 Census figures published for Koronadal. Saravia and Topland are the local names used by CareLink for the PSA barangays Sarabia and Zulueta.",
       "records": [
-        { "name": "Assumption", "aliases": [], "population_2020": 2291, "population_2015": 2025, "share_percent": 1.17 },
-        { "name": "Avanceña", "aliases": ["Avancena"], "population_2020": 4618, "population_2015": 4079, "share_percent": 2.36 },
-        { "name": "Cacub", "aliases": [], "population_2020": 2725, "population_2015": 2477, "share_percent": 1.39 },
-        { "name": "Caloocan", "aliases": [], "population_2020": 5159, "population_2015": 4183, "share_percent": 2.64 },
-        { "name": "Carpenter Hill", "aliases": [], "population_2020": 7652, "population_2015": 6584, "share_percent": 3.92 },
-        { "name": "Concepcion", "aliases": [], "population_2020": 5818, "population_2015": 4268, "share_percent": 2.98 },
-        { "name": "Esperanza", "aliases": [], "population_2020": 1942, "population_2015": 2655, "share_percent": 0.99 },
-        { "name": "General Paulino Santos", "aliases": ["GPS"], "population_2020": 23242, "population_2015": 24612, "share_percent": 11.89 },
-        { "name": "Mabini", "aliases": [], "population_2020": 4057, "population_2015": 3871, "share_percent": 2.08 },
-        { "name": "Magsaysay", "aliases": [], "population_2020": 3266, "population_2015": 3169, "share_percent": 1.67 },
-        { "name": "Mambucal", "aliases": [], "population_2020": 1269, "population_2015": 1321, "share_percent": 0.65 },
-        { "name": "Morales", "aliases": [], "population_2020": 9133, "population_2015": 8656, "share_percent": 4.67 },
-        { "name": "Namnama", "aliases": [], "population_2020": 4245, "population_2015": 3416, "share_percent": 2.17 },
-        { "name": "New Pangasinan", "aliases": [], "population_2020": 4321, "population_2015": 3626, "share_percent": 2.21 },
-        { "name": "Paraiso", "aliases": ["Paraíso"], "population_2020": 6631, "population_2015": 5669, "share_percent": 3.39 },
-        { "name": "Rotonda", "aliases": [], "population_2020": 4369, "population_2015": 3279, "share_percent": 2.24 },
-        { "name": "San Isidro", "aliases": [], "population_2020": 8421, "population_2015": 7198, "share_percent": 4.31 },
-        { "name": "San Jose", "aliases": ["San José"], "population_2020": 8750, "population_2015": 7410, "share_percent": 4.48 },
-        { "name": "San Roque", "aliases": [], "population_2020": 4476, "population_2015": 4066, "share_percent": 2.29 },
-        { "name": "Santa Cruz", "aliases": ["Sta Cruz", "Sta. Cruz"], "population_2020": 18724, "population_2015": 13534, "share_percent": 9.58 },
-        { "name": "Santo Niño", "aliases": ["Santo Nino", "Sto Niño", "Sto. Niño"], "population_2020": 16062, "population_2015": 10770, "share_percent": 8.22 },
-        { "name": "Sarabia", "aliases": ["Saravia"], "population_2020": 9420, "population_2015": 8935, "share_percent": 4.82 },
-        { "name": "Zone I", "aliases": ["Zone 1"], "population_2020": 4125, "population_2015": 4652, "share_percent": 2.11 },
-        { "name": "Zone II", "aliases": ["Zone 2"], "population_2020": 3999, "population_2015": 4214, "share_percent": 2.05 },
-        { "name": "Zone III", "aliases": ["Zone 3"], "population_2020": 13013, "population_2015": 12423, "share_percent": 6.66 },
-        { "name": "Zone IV", "aliases": ["Zone 4"], "population_2020": 7856, "population_2015": 8833, "share_percent": 4.02 },
-        { "name": "Zulueta", "aliases": ["Topland"], "population_2020": 9814, "population_2015": 9017, "share_percent": 5.02 }
-      ]
+        {
+          "name": "Assumption",
+          "aliases": [],
+          "population_2020": 2291,
+          "population_2015": 2025,
+          "share_percent": 1.17
+        },
+        {
+          "name": "Avanceña",
+          "aliases": [
+            "Avancena"
+          ],
+          "population_2020": 4618,
+          "population_2015": 4079,
+          "share_percent": 2.36
+        },
+        {
+          "name": "Cacub",
+          "aliases": [],
+          "population_2020": 2725,
+          "population_2015": 2477,
+          "share_percent": 1.39
+        },
+        {
+          "name": "Caloocan",
+          "aliases": [],
+          "population_2020": 5159,
+          "population_2015": 4183,
+          "share_percent": 2.64
+        },
+        {
+          "name": "Carpenter Hill",
+          "aliases": [],
+          "population_2020": 7652,
+          "population_2015": 6584,
+          "share_percent": 3.92
+        },
+        {
+          "name": "Concepcion",
+          "aliases": [],
+          "population_2020": 5818,
+          "population_2015": 4268,
+          "share_percent": 2.98
+        },
+        {
+          "name": "Esperanza",
+          "aliases": [],
+          "population_2020": 1942,
+          "population_2015": 2655,
+          "share_percent": 0.99
+        },
+        {
+          "name": "General Paulino Santos",
+          "aliases": [
+            "GPS"
+          ],
+          "population_2020": 23242,
+          "population_2015": 24612,
+          "share_percent": 11.89
+        },
+        {
+          "name": "Mabini",
+          "aliases": [],
+          "population_2020": 4057,
+          "population_2015": 3871,
+          "share_percent": 2.08
+        },
+        {
+          "name": "Magsaysay",
+          "aliases": [],
+          "population_2020": 3266,
+          "population_2015": 3169,
+          "share_percent": 1.67
+        },
+        {
+          "name": "Mambucal",
+          "aliases": [],
+          "population_2020": 1269,
+          "population_2015": 1321,
+          "share_percent": 0.65
+        },
+        {
+          "name": "Morales",
+          "aliases": [],
+          "population_2020": 9133,
+          "population_2015": 8656,
+          "share_percent": 4.67
+        },
+        {
+          "name": "Namnama",
+          "aliases": [],
+          "population_2020": 4245,
+          "population_2015": 3416,
+          "share_percent": 2.17
+        },
+        {
+          "name": "New Pangasinan",
+          "aliases": [],
+          "population_2020": 4321,
+          "population_2015": 3626,
+          "share_percent": 2.21
+        },
+        {
+          "name": "Paraiso",
+          "aliases": [
+            "Paraíso"
+          ],
+          "population_2020": 6631,
+          "population_2015": 5669,
+          "share_percent": 3.39
+        },
+        {
+          "name": "Rotonda",
+          "aliases": [],
+          "population_2020": 4369,
+          "population_2015": 3279,
+          "share_percent": 2.24
+        },
+        {
+          "name": "San Isidro",
+          "aliases": [],
+          "population_2020": 8421,
+          "population_2015": 7198,
+          "share_percent": 4.31
+        },
+        {
+          "name": "San Jose",
+          "aliases": [
+            "San José"
+          ],
+          "population_2020": 8750,
+          "population_2015": 7410,
+          "share_percent": 4.48
+        },
+        {
+          "name": "San Roque",
+          "aliases": [],
+          "population_2020": 4476,
+          "population_2015": 4066,
+          "share_percent": 2.29
+        },
+        {
+          "name": "Santa Cruz",
+          "aliases": [
+            "Sta Cruz",
+            "Sta. Cruz"
+          ],
+          "population_2020": 18724,
+          "population_2015": 13534,
+          "share_percent": 9.58
+        },
+        {
+          "name": "Santo Niño",
+          "aliases": [
+            "Santo Nino",
+            "Sto Niño",
+            "Sto. Niño"
+          ],
+          "population_2020": 16062,
+          "population_2015": 10770,
+          "share_percent": 8.22
+        },
+        {
+          "name": "Sarabia",
+          "aliases": [
+            "Saravia"
+          ],
+          "population_2020": 9420,
+          "population_2015": 8935,
+          "share_percent": 4.82
+        },
+        {
+          "name": "Zone I",
+          "aliases": [
+            "Zone 1"
+          ],
+          "population_2020": 4125,
+          "population_2015": 4652,
+          "share_percent": 2.11
+        },
+        {
+          "name": "Zone II",
+          "aliases": [
+            "Zone 2"
+          ],
+          "population_2020": 3999,
+          "population_2015": 4214,
+          "share_percent": 2.05
+        },
+        {
+          "name": "Zone III",
+          "aliases": [
+            "Zone 3"
+          ],
+          "population_2020": 13013,
+          "population_2015": 12423,
+          "share_percent": 6.66
+        },
+        {
+          "name": "Zone IV",
+          "aliases": [
+            "Zone 4"
+          ],
+          "population_2020": 7856,
+          "population_2015": 8833,
+          "share_percent": 4.02
+        },
+        {
+          "name": "Zulueta",
+          "aliases": [
+            "Topland"
+          ],
+          "population_2020": 9814,
+          "population_2015": 9017,
+          "share_percent": 5.02
+        }
+      ],
+      "checked_on": "2026-10-07"
     },
     {
-      "id": "psa-2015-koronadal-age",
-      "title": "Koronadal age structure",
-      "publisher": "Philippine Statistics Authority",
-      "year": 2015,
-      "geography": "Koronadal City",
-      "description": "2015 census age groups for Koronadal, used as the local baseline for child, working-age, and senior share.",
-      "source_url": "https://www.philatlas.com/mindanao/r12/south-cotabato/koronadal.html",
-      "source_note": "Age distribution is from the 2015 Census (total 174,942). The 2020 census did not publish this age split on the same city profile.",
-      "records": [
-        { "age_group": "Under 1", "population": 3664, "share_percent": 2.09, "carelink_group": "infant" },
-        { "age_group": "1 to 4", "population": 14914, "share_percent": 8.53, "carelink_group": "child" },
-        { "age_group": "5 to 9", "population": 18113, "share_percent": 10.35, "carelink_group": "child" },
-        { "age_group": "10 to 14", "population": 16764, "share_percent": 9.58, "carelink_group": "child" },
-        { "age_group": "15 to 19", "population": 17121, "share_percent": 9.79, "carelink_group": "working_age" },
-        { "age_group": "20 to 24", "population": 17043, "share_percent": 9.74, "carelink_group": "working_age" },
-        { "age_group": "25 to 29", "population": 14980, "share_percent": 8.56, "carelink_group": "working_age" },
-        { "age_group": "30 to 34", "population": 13125, "share_percent": 7.5, "carelink_group": "working_age" },
-        { "age_group": "35 to 39", "population": 12161, "share_percent": 6.95, "carelink_group": "working_age" },
-        { "age_group": "40 to 44", "population": 10509, "share_percent": 6.01, "carelink_group": "working_age" },
-        { "age_group": "45 to 49", "population": 9271, "share_percent": 5.3, "carelink_group": "working_age" },
-        { "age_group": "50 to 54", "population": 8016, "share_percent": 4.58, "carelink_group": "working_age" },
-        { "age_group": "55 to 59", "population": 6427, "share_percent": 3.67, "carelink_group": "working_age" },
-        { "age_group": "60 to 64", "population": 4902, "share_percent": 2.8, "carelink_group": "senior" },
-        { "age_group": "65 to 69", "population": 3205, "share_percent": 1.83, "carelink_group": "senior" },
-        { "age_group": "70 to 74", "population": 2024, "share_percent": 1.16, "carelink_group": "senior" },
-        { "age_group": "75 to 79", "population": 1392, "share_percent": 0.8, "carelink_group": "senior" },
-        { "age_group": "80 and over", "population": 1311, "share_percent": 0.75, "carelink_group": "senior" }
-      ]
-    },
-    {
-      "id": "psa-2020-south-cotabato-lgus",
+      "id": "psa-2024-south-cotabato-lgus",
+      "series": "psa-south-cotabato-lgus",
       "title": "South Cotabato city and municipal population",
       "publisher": "Philippine Statistics Authority",
-      "year": 2020,
+      "year": 2024,
+      "as_of": "2024-07-01",
       "geography": "South Cotabato",
-      "description": "2020 population of Koronadal and the 10 municipalities, so city referrals can be read against the rest of the province.",
-      "source_url": "https://www.philatlas.com/mindanao/r12/south-cotabato.html",
-      "source_note": "PSA 2020 CPH. General Santos is a highly urbanized city and is not part of this provincial total.",
+      "description": "Newest official 2024 census count for Koronadal and the 10 municipalities.",
+      "source_url": "https://pia.gov.ph/news/soccsksargens-population-now-at-4-46-million-psa-reports/",
+      "source_note": "PSA 2024 Census of Population as reported by PIA Region 12. General Santos is a highly urbanized city and is not part of this provincial total. Checked 7 October 2026.",
       "records": [
-        { "name": "Banga", "type": "municipality", "population_2020": 89164 },
-        { "name": "Koronadal", "type": "component city", "population_2020": 195398, "capital": true },
-        { "name": "Lake Sebu", "type": "municipality", "population_2020": 81221 },
-        { "name": "Norala", "type": "municipality", "population_2020": 46682 },
-        { "name": "Polomolok", "type": "municipality", "population_2020": 172605 },
-        { "name": "Santo Niño", "type": "municipality", "population_2020": 39796 },
-        { "name": "Surallah", "type": "municipality", "population_2020": 89340 },
-        { "name": "Tampakan", "type": "municipality", "population_2020": 41018 },
-        { "name": "Tantangan", "type": "municipality", "population_2020": 45744 },
-        { "name": "T'Boli", "type": "municipality", "population_2020": 101049 },
-        { "name": "Tupi", "type": "municipality", "population_2020": 73459 }
-      ]
+        {
+          "name": "Banga",
+          "type": "municipality",
+          "population_2024": 91536
+        },
+        {
+          "name": "Koronadal",
+          "type": "component city",
+          "population_2024": 201844,
+          "capital": true
+        },
+        {
+          "name": "Lake Sebu",
+          "type": "municipality",
+          "population_2024": 84252
+        },
+        {
+          "name": "Norala",
+          "type": "municipality",
+          "population_2024": 48499
+        },
+        {
+          "name": "Polomolok",
+          "type": "municipality",
+          "population_2024": 176671
+        },
+        {
+          "name": "Santo Niño",
+          "type": "municipality",
+          "population_2024": 41026
+        },
+        {
+          "name": "Surallah",
+          "type": "municipality",
+          "population_2024": 91412
+        },
+        {
+          "name": "Tampakan",
+          "type": "municipality",
+          "population_2024": 42304
+        },
+        {
+          "name": "Tantangan",
+          "type": "municipality",
+          "population_2024": 48570
+        },
+        {
+          "name": "T'Boli",
+          "type": "municipality",
+          "population_2024": 105296
+        },
+        {
+          "name": "Tupi",
+          "type": "municipality",
+          "population_2024": 78599
+        }
+      ],
+      "checked_on": "2026-10-07"
     },
     {
       "id": "south-cotabato-health-facilities",
@@ -154,13 +358,16 @@
           "government_hospitals": 6,
           "note": "Lake Sebu is the RHU without its own birthing facility; an infirmary sits beside that RHU."
         }
-      ]
+      ],
+      "series": "south-cotabato-facilities",
+      "as_of": "2023-01-01",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "doh-primary-care-programs",
       "title": "DOH primary care programs",
       "publisher": "Department of Health",
-      "year": 2024,
+      "year": 2026,
       "geography": "Philippines",
       "description": "DOH programs a barangay health station or city health office is expected to deliver or refer.",
       "source_url": "https://doh.gov.ph/",
@@ -170,167 +377,340 @@
           "id": "philpen",
           "name": "PhilPEN noncommunicable disease package",
           "agency": "Department of Health",
-          "keywords": ["hypertension", "blood pressure", "diabetes", "ncd"],
+          "keywords": [
+            "hypertension",
+            "blood pressure",
+            "diabetes",
+            "ncd"
+          ],
           "action": "Keep antihypertensive and diabetes follow-up inside the city NCD clinic before cases become emergencies."
         },
         {
           "id": "mnchn",
           "name": "Maternal, newborn, and child health and nutrition",
           "agency": "Department of Health",
-          "keywords": ["prenatal", "maternal", "postpartum", "newborn", "pregnant"],
+          "keywords": [
+            "prenatal",
+            "maternal",
+            "postpartum",
+            "newborn",
+            "pregnant"
+          ],
           "action": "Protect prenatal and postpartum slots at the city health office and birthing facility."
         },
         {
           "id": "ntp",
           "name": "National Tuberculosis Program (TB-DOTS)",
           "agency": "Department of Health",
-          "keywords": ["tb", "tuberculosis", "sputum", "dots"],
+          "keywords": [
+            "tb",
+            "tuberculosis",
+            "sputum",
+            "dots"
+          ],
           "action": "Route symptomatic patients to TB-DOTS screening instead of a general queue."
         },
         {
           "id": "nip",
           "name": "National Immunization Program",
           "agency": "Department of Health",
-          "keywords": ["immunization", "vaccine", "vaccination"],
+          "keywords": [
+            "immunization",
+            "vaccine",
+            "vaccination"
+          ],
           "action": "Separate catch-up immunization from curative referrals so vaccine sessions are not crowded out."
         },
         {
           "id": "dengue",
           "name": "National Dengue Prevention and Control Program",
           "agency": "Department of Health",
-          "keywords": ["dengue"],
+          "keywords": [
+            "dengue"
+          ],
           "action": "Apply the 4S advisory: search and destroy breeding sites, seek early consultation, self-protection, and fogging only when indicated."
         },
         {
           "id": "rabies",
           "name": "National Rabies Prevention and Control Program",
           "agency": "Department of Health",
-          "keywords": ["animal bite", "rabies", "dog bite"],
+          "keywords": [
+            "animal bite",
+            "rabies",
+            "dog bite"
+          ],
           "action": "Send animal-bite cases to a bite treatment center the same day."
         },
         {
           "id": "imci",
           "name": "Integrated Management of Childhood Illness",
           "agency": "Department of Health",
-          "keywords": ["pediatric", "child", "malnutrition", "underweight"],
+          "keywords": [
+            "pediatric",
+            "child",
+            "malnutrition",
+            "underweight"
+          ],
           "action": "Screen under-five referrals with IMCI and nutrition follow-up before specialist referral."
         },
         {
           "id": "mental-health",
           "name": "Mental Health Act service pathway",
           "agency": "Department of Health",
-          "keywords": ["mental", "anxiety", "depression"],
+          "keywords": [
+            "mental",
+            "anxiety",
+            "depression"
+          ],
           "action": "Keep a mental health counseling slot so these referrals are not left in the general queue."
         },
         {
           "id": "family-planning",
           "name": "Family planning program",
           "agency": "Department of Health",
-          "keywords": ["family planning"],
+          "keywords": [
+            "family planning"
+          ],
           "action": "Offer method refill at the barangay or city clinic without a specialist referral."
         },
         {
           "id": "oral-health",
           "name": "Oral health program",
           "agency": "Department of Health",
-          "keywords": ["dental", "oral", "tooth"],
+          "keywords": [
+            "dental",
+            "oral",
+            "tooth"
+          ],
           "action": "Batch dental referrals toward the city oral health clinic."
         },
         {
           "id": "respiratory",
           "name": "Acute respiratory infection care",
           "agency": "Department of Health",
-          "keywords": ["respiratory", "asthma", "cough", "pneumonia"],
+          "keywords": [
+            "respiratory",
+            "asthma",
+            "cough",
+            "pneumonia"
+          ],
           "action": "Stock inhalers and pediatric respiratory assessment, matching the country's leading cause of morbidity."
         }
-      ]
+      ],
+      "series": "doh-primary-care-programs",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "doh-pidsr",
       "title": "PIDSR notifiable diseases",
       "publisher": "Department of Health Epidemiology Bureau",
-      "year": 2020,
+      "year": 2026,
       "geography": "Philippines",
       "description": "Diseases the Philippine Integrated Disease Surveillance and Response system expects facilities to report.",
       "source_url": "https://doh.gov.ph/programs/pidsr",
       "source_note": "Category labels follow the DOH PIDSR disease list used by epidemiology and surveillance units. A match means the referral text should be checked for reporting, not that a case is confirmed.",
       "records": [
-        { "name": "Acute flaccid paralysis", "category": "immediate", "keywords": ["acute flaccid", "polio"] },
-        { "name": "Measles", "category": "immediate", "keywords": ["measles"] },
-        { "name": "Neonatal tetanus", "category": "immediate", "keywords": ["neonatal tetanus"] },
-        { "name": "Rabies", "category": "immediate", "keywords": ["rabies"] },
-        { "name": "Meningococcal disease", "category": "immediate", "keywords": ["meningococcal"] },
-        { "name": "Anthrax", "category": "immediate", "keywords": ["anthrax"] },
-        { "name": "Dengue", "category": "weekly", "keywords": ["dengue"] },
-        { "name": "Leptospirosis", "category": "weekly", "keywords": ["leptospirosis"] },
-        { "name": "Cholera", "category": "weekly", "keywords": ["cholera"] },
-        { "name": "Typhoid and paratyphoid fever", "category": "weekly", "keywords": ["typhoid", "paratyphoid"] },
-        { "name": "Malaria", "category": "weekly", "keywords": ["malaria"] },
-        { "name": "Diphtheria", "category": "weekly", "keywords": ["diphtheria"] },
-        { "name": "Pertussis", "category": "weekly", "keywords": ["pertussis", "whooping"] },
-        { "name": "Acute bloody diarrhea", "category": "weekly", "keywords": ["bloody diarrhea", "dysentery"] },
-        { "name": "Influenza-like illness", "category": "weekly", "keywords": ["influenza", "ili"] }
-      ]
+        {
+          "name": "Acute flaccid paralysis",
+          "category": "immediate",
+          "keywords": [
+            "acute flaccid",
+            "polio"
+          ]
+        },
+        {
+          "name": "Measles",
+          "category": "immediate",
+          "keywords": [
+            "measles"
+          ]
+        },
+        {
+          "name": "Neonatal tetanus",
+          "category": "immediate",
+          "keywords": [
+            "neonatal tetanus"
+          ]
+        },
+        {
+          "name": "Rabies",
+          "category": "immediate",
+          "keywords": [
+            "rabies"
+          ]
+        },
+        {
+          "name": "Meningococcal disease",
+          "category": "immediate",
+          "keywords": [
+            "meningococcal"
+          ]
+        },
+        {
+          "name": "Anthrax",
+          "category": "immediate",
+          "keywords": [
+            "anthrax"
+          ]
+        },
+        {
+          "name": "Dengue",
+          "category": "weekly",
+          "keywords": [
+            "dengue"
+          ]
+        },
+        {
+          "name": "Leptospirosis",
+          "category": "weekly",
+          "keywords": [
+            "leptospirosis"
+          ]
+        },
+        {
+          "name": "Cholera",
+          "category": "weekly",
+          "keywords": [
+            "cholera"
+          ]
+        },
+        {
+          "name": "Typhoid and paratyphoid fever",
+          "category": "weekly",
+          "keywords": [
+            "typhoid",
+            "paratyphoid"
+          ]
+        },
+        {
+          "name": "Malaria",
+          "category": "weekly",
+          "keywords": [
+            "malaria"
+          ]
+        },
+        {
+          "name": "Diphtheria",
+          "category": "weekly",
+          "keywords": [
+            "diphtheria"
+          ]
+        },
+        {
+          "name": "Pertussis",
+          "category": "weekly",
+          "keywords": [
+            "pertussis",
+            "whooping"
+          ]
+        },
+        {
+          "name": "Acute bloody diarrhea",
+          "category": "weekly",
+          "keywords": [
+            "bloody diarrhea",
+            "dysentery"
+          ]
+        },
+        {
+          "name": "Influenza-like illness",
+          "category": "weekly",
+          "keywords": [
+            "influenza",
+            "ili"
+          ]
+        }
+      ],
+      "series": "doh-pidsr",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "doh-fhsis-r12-2025",
-      "title": "SOCCSKSARGEN leading morbidity, December 2025",
+      "series": "doh-morbidity-r12",
+      "title": "Latest SOCCSKSARGEN morbidity",
       "publisher": "Department of Health Epidemiology Bureau",
       "year": 2025,
-      "geography": "Region XII (SOCCSKSARGEN)",
-      "description": "December 2025 FHSIS causes for the region CareLink serves. Compared with live referral text only when the same condition appears.",
+      "as_of": "2026-02-11",
+      "period_label": "December 2025",
+      "geography": "SOCCSKSARGEN",
+      "description": "Newest Region XII FHSIS morbidity table found when this catalog was checked on 7 October 2026.",
       "source_url": "https://doh.gov.ph/",
-      "source_note": "DOH Epidemiology Bureau, FHSIS CY 2025 December Monthly Report, Region XII table, as of 11 February 2026. The report says these figures are partial.",
+      "source_note": "DOH Epidemiology Bureau, FHSIS CY 2025 December Monthly Report, Region XII table, published 11 February 2026. The bureau marks the figures partial. No later Region XII table was published as of 7 October 2026.",
       "records": [
         {
           "rank": 1,
           "condition": "Other acute upper respiratory infections",
           "cases": 1916,
-          "keywords": ["respiratory", "asthma", "cough", "pharyngitis"]
+          "keywords": [
+            "respiratory",
+            "asthma",
+            "cough",
+            "pharyngitis"
+          ]
         },
         {
           "rank": 2,
           "condition": "Animal bites",
           "cases": 764,
-          "keywords": ["animal bite", "dog bite", "rabies"]
+          "keywords": [
+            "animal bite",
+            "dog bite",
+            "rabies"
+          ]
         },
         {
           "rank": 3,
           "condition": "Essential hypertension",
           "cases": 640,
-          "keywords": ["hypertension", "blood pressure"]
+          "keywords": [
+            "hypertension",
+            "blood pressure"
+          ]
         },
         {
           "rank": 4,
           "condition": "Pneumonia",
           "cases": 449,
-          "keywords": ["pneumonia"]
+          "keywords": [
+            "pneumonia"
+          ]
         },
         {
           "rank": 5,
           "condition": "Other upper respiratory tract disease",
           "cases": 416,
-          "keywords": ["tonsillitis", "pharyngitis"]
+          "keywords": [
+            "tonsillitis",
+            "pharyngitis"
+          ]
         },
         {
           "rank": 6,
           "condition": "Diabetes mellitus",
           "cases": 276,
-          "keywords": ["diabetes"]
+          "keywords": [
+            "diabetes"
+          ]
         },
         {
           "rank": 9,
           "condition": "Urinary tract infection",
           "cases": 211,
-          "keywords": ["urinary", "uti"]
+          "keywords": [
+            "urinary",
+            "uti"
+          ]
         }
-      ]
+      ],
+      "checked_on": "2026-10-07"
     },
     {
       "id": "pagasa-seasonal-health",
       "title": "Philippine seasonal health calendar",
       "publisher": "PAGASA climate types and Department of Health seasonal advisories",
-      "year": 2024,
+      "year": 2026,
       "geography": "Philippines, with a Koronadal Type IV note",
       "description": "Months when dengue, leptospirosis, diarrhea, respiratory illness, and heat illness usually rise.",
       "source_url": "https://www.pagasa.dost.gov.ph/information/climate-philippines",
@@ -338,85 +718,258 @@
       "records": [
         {
           "condition": "Dengue",
-          "peak_months": [6, 7, 8, 9, 10, 11],
-          "keywords": ["dengue"],
+          "peak_months": [
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "keywords": [
+            "dengue"
+          ],
           "guidance": "Search and destroy mosquito breeding sites and fast-track fever referrals."
         },
         {
           "condition": "Leptospirosis",
-          "peak_months": [6, 7, 8, 9, 10, 11],
-          "keywords": ["leptospirosis", "flood"],
+          "peak_months": [
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "keywords": [
+            "leptospirosis",
+            "flood"
+          ],
           "guidance": "Ask about flood exposure when fever follows heavy rain."
         },
         {
           "condition": "Acute watery diarrhea",
-          "peak_months": [6, 7, 8, 9, 10],
-          "keywords": ["diarrhea", "dehydration", "gastroenteritis"],
+          "peak_months": [
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "keywords": [
+            "diarrhea",
+            "dehydration",
+            "gastroenteritis"
+          ],
           "guidance": "Check safe-water advice and oral rehydration at the barangay station."
         },
         {
           "condition": "Influenza-like illness",
-          "peak_months": [6, 7, 8, 9, 10, 11, 12, 1, 2],
-          "keywords": ["influenza", "respiratory", "cough"],
+          "peak_months": [
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            1,
+            2
+          ],
+          "keywords": [
+            "influenza",
+            "respiratory",
+            "cough"
+          ],
           "guidance": "Separate respiratory cough cases from routine wellness visits."
         },
         {
           "condition": "Heat-related illness",
-          "peak_months": [3, 4, 5],
-          "keywords": ["heat", "dehydration"],
+          "peak_months": [
+            3,
+            4,
+            5
+          ],
+          "keywords": [
+            "heat",
+            "dehydration"
+          ],
           "guidance": "Watch dehydration during the hot months, including outdoor workers and seniors."
         }
-      ]
+      ],
+      "series": "pagasa-seasonal-health",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "south-cotabato-indigenous-peoples",
       "title": "South Cotabato indigenous peoples",
       "publisher": "National Commission on Indigenous Peoples",
-      "year": 2020,
+      "year": 2026,
       "geography": "South Cotabato",
       "description": "Indigenous groups CareLink should recognize when a patient is tagged as indigenous.",
       "source_url": "https://ncip.gov.ph/",
       "source_note": "T'boli, B'laan, and Manobo are the principal indigenous groups associated with South Cotabato. Lake Sebu and T'boli municipality are the main ancestral domains; Koronadal also serves IP patients referred into the city.",
       "records": [
-        { "name": "T'boli", "aliases": ["Tboli", "T'boli"], "keywords": ["tboli", "t'boli", "indigenous"] },
-        { "name": "B'laan", "aliases": ["Blaan", "B'laan", "Bilan"], "keywords": ["blaan", "b'laan", "bilan", "indigenous"] },
-        { "name": "Manobo", "aliases": ["Manobo"], "keywords": ["manobo", "indigenous"] }
-      ]
+        {
+          "name": "T'boli",
+          "aliases": [
+            "Tboli",
+            "T'boli"
+          ],
+          "keywords": [
+            "tboli",
+            "t'boli",
+            "indigenous"
+          ]
+        },
+        {
+          "name": "B'laan",
+          "aliases": [
+            "Blaan",
+            "B'laan",
+            "Bilan"
+          ],
+          "keywords": [
+            "blaan",
+            "b'laan",
+            "bilan",
+            "indigenous"
+          ]
+        },
+        {
+          "name": "Manobo",
+          "aliases": [
+            "Manobo"
+          ],
+          "keywords": [
+            "manobo",
+            "indigenous"
+          ]
+        }
+      ],
+      "series": "south-cotabato-ip",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "ph-priority-population-laws",
       "title": "Priority population laws",
       "publisher": "Republic of the Philippines",
-      "year": 2022,
+      "year": 2026,
       "geography": "Philippines",
       "description": "Statutes that match CareLink patient tags: senior, PWD, solo parent, indigenous, pregnant, and child.",
       "source_url": "https://www.officialgazette.gov.ph/",
       "source_note": "Used so AI recommendations name the law behind a priority tag. These are eligibility and service-priority rules, not clinical diagnoses.",
       "records": [
-        { "id": "uhc", "name": "Universal Health Care Act", "law": "RA 11223", "keywords": ["philhealth", "konsulta"], "action": "Check PhilHealth Konsulta eligibility before a paid specialist step." },
-        { "id": "senior", "name": "Expanded Senior Citizens Act", "law": "RA 9994", "keywords": ["senior"], "action": "Keep a senior lane for chronic-care follow-up." },
-        { "id": "pwd", "name": "Magna Carta for Disabled Persons", "law": "RA 7277", "keywords": ["pwd", "disability"], "action": "Do not leave PWD referrals in a standing queue." },
-        { "id": "solo-parent", "name": "Expanded Solo Parents Welfare Act", "law": "RA 11861", "keywords": ["solo parent"], "action": "Offer a shorter return visit when the caregiver is a solo parent." },
-        { "id": "ipra", "name": "Indigenous Peoples' Rights Act", "law": "RA 8371", "keywords": ["indigenous", "ip "], "action": "Record indigenous identity only for service access, and involve the city IP desk when language is a barrier." },
-        { "id": "mental", "name": "Mental Health Act", "law": "RA 11036", "keywords": ["mental", "anxiety"], "action": "Mental health referrals need a named counseling pathway." },
-        { "id": "rprh", "name": "Responsible Parenthood and Reproductive Health Act", "law": "RA 10354", "keywords": ["family planning", "prenatal", "pregnant"], "action": "Keep family planning and prenatal services available at the referring center." }
-      ]
+        {
+          "id": "uhc",
+          "name": "Universal Health Care Act",
+          "law": "RA 11223",
+          "keywords": [
+            "philhealth",
+            "konsulta"
+          ],
+          "action": "Check PhilHealth Konsulta eligibility before a paid specialist step."
+        },
+        {
+          "id": "senior",
+          "name": "Expanded Senior Citizens Act",
+          "law": "RA 9994",
+          "keywords": [
+            "senior"
+          ],
+          "action": "Keep a senior lane for chronic-care follow-up."
+        },
+        {
+          "id": "pwd",
+          "name": "Magna Carta for Disabled Persons",
+          "law": "RA 7277",
+          "keywords": [
+            "pwd",
+            "disability"
+          ],
+          "action": "Do not leave PWD referrals in a standing queue."
+        },
+        {
+          "id": "solo-parent",
+          "name": "Expanded Solo Parents Welfare Act",
+          "law": "RA 11861",
+          "keywords": [
+            "solo parent"
+          ],
+          "action": "Offer a shorter return visit when the caregiver is a solo parent."
+        },
+        {
+          "id": "ipra",
+          "name": "Indigenous Peoples' Rights Act",
+          "law": "RA 8371",
+          "keywords": [
+            "indigenous",
+            "ip "
+          ],
+          "action": "Record indigenous identity only for service access, and involve the city IP desk when language is a barrier."
+        },
+        {
+          "id": "mental",
+          "name": "Mental Health Act",
+          "law": "RA 11036",
+          "keywords": [
+            "mental",
+            "anxiety"
+          ],
+          "action": "Mental health referrals need a named counseling pathway."
+        },
+        {
+          "id": "rprh",
+          "name": "Responsible Parenthood and Reproductive Health Act",
+          "law": "RA 10354",
+          "keywords": [
+            "family planning",
+            "prenatal",
+            "pregnant"
+          ],
+          "action": "Keep family planning and prenatal services available at the referring center."
+        }
+      ],
+      "series": "ph-priority-population-laws",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     },
     {
       "id": "doh-service-delivery-network",
       "title": "DOH service delivery network",
       "publisher": "Department of Health",
-      "year": 2016,
+      "year": 2026,
       "geography": "Philippines",
       "description": "The referral ladder from a barangay health station up to an apex hospital. This is the pathway CareLink automates inside Koronadal.",
       "source_url": "https://doh.gov.ph/",
       "source_note": "Levels follow the DOH service delivery network used by provincial health systems: barangay health station, rural health unit or city health office, then hospital.",
       "records": [
-        { "level": 1, "facility": "Barangay Health Station", "role": "First contact, prevention, and upward referral." },
-        { "level": 2, "facility": "Rural Health Unit or City Health Office", "role": "Primary care, prenatal care, TB-DOTS, immunization, and hospital referral." },
-        { "level": 3, "facility": "Infirmary or Level 1 hospital", "role": "Stabilization and inpatient primary care." },
-        { "level": 4, "facility": "Level 2 or apex hospital", "role": "Specialist and emergency definitive care." }
-      ]
+        {
+          "level": 1,
+          "facility": "Barangay Health Station",
+          "role": "First contact, prevention, and upward referral."
+        },
+        {
+          "level": 2,
+          "facility": "Rural Health Unit or City Health Office",
+          "role": "Primary care, prenatal care, TB-DOTS, immunization, and hospital referral."
+        },
+        {
+          "level": 3,
+          "facility": "Infirmary or Level 1 hospital",
+          "role": "Stabilization and inpatient primary care."
+        },
+        {
+          "level": 4,
+          "facility": "Level 2 or apex hospital",
+          "role": "Specialist and emergency definitive care."
+        }
+      ],
+      "series": "doh-service-delivery-network",
+      "as_of": "2026-10-07",
+      "checked_on": "2026-10-07"
     }
   ]
 }

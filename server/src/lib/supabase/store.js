@@ -2371,10 +2371,15 @@ export async function getAiCaseInsights({ days = 0, overloadZ = 1 } = {}) {
     );
   }
 
-  const philippineContext = buildPhilippineAiContext({
-    barangayRows: hotspots.by_barangay,
-    reasonText: reasons.join(' '),
-  });
+  let philippineContext = { show: false, recommendations: [] };
+  try {
+    philippineContext = buildPhilippineAiContext({
+      barangayRows: hotspots.by_barangay,
+      reasonText: reasons.join(' '),
+    });
+  } catch (error) {
+    console.error('Philippine AI context skipped:', error.message);
+  }
 
   const recommendations = [];
   if (hotspots.by_barangay[0]) {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildPhilippineAiContext,
+  latestPopulation,
   listPhilippineDatasets,
   matchKoronadalBarangay,
 } from '../../shared/philippineDatasets.js';
@@ -9,8 +10,8 @@ import {
 test('philippine datasets cover Koronadal and national programs', () => {
   const datasets = listPhilippineDatasets();
   assert.ok(datasets.length >= 10);
-  assert.ok(datasets.some((item) => item.id === 'psa-2020-koronadal-barangays'));
-  assert.ok(datasets.every((item) => item.record_count > 0 && item.publisher && item.year));
+  assert.ok(datasets.some((item) => item.series === 'psa-koronadal-barangays'));
+  assert.ok(datasets.every((item) => item.record_count > 0 && item.publisher && item.as_of && item.checked_on === '2026-10-07'));
 });
 
 test('barangay populations sum to the PSA 2020 Koronadal total', () => {
@@ -24,7 +25,8 @@ test('barangay populations sum to the PSA 2020 Koronadal total', () => {
 
   assert.equal(rows.length, 27);
   assert.ok(rows.every(Boolean));
-  assert.equal(rows.reduce((sum, row) => sum + row.population_2020, 0), 195398);
+  assert.equal(rows.reduce((sum, row) => sum + latestPopulation(row).value, 0), 195398);
+  assert.ok(rows.every((row) => latestPopulation(row).year === 2020));
   assert.equal(matchKoronadalBarangay('Barangay Saravia Health Center').name, 'Sarabia');
   assert.equal(matchKoronadalBarangay('Topland').population_2020, 9814);
   assert.equal(matchKoronadalBarangay('Sta. Cruz').name, 'Santa Cruz');
@@ -41,7 +43,12 @@ test('ai context rates referrals against population and DOH programs', () => {
   });
 
   assert.equal(context.month_name, 'October');
-  assert.equal(context.city_population_2024, 201844);
+  assert.equal(context.as_of_label, '5 October 2026');
+  assert.equal(context.summary.includes('2025'), false);
+  assert.ok(context.national_morbidity_alignment.every((row) => !String(row.note).includes('2025')));
+  assert.equal(context.catalog_checked_on, '2026-10-07');
+  assert.equal(context.city_population, 201844);
+  assert.equal(context.city_population_year, 2024);
   assert.equal(context.show, true);
   assert.equal(context.population_adjusted_barangays[0].psa_name, 'Zulueta');
   assert.ok(context.population_adjusted_barangays[0].cases_per_1000

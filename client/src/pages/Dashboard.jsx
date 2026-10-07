@@ -14,7 +14,7 @@ import {
   Users,
 } from 'lucide-react';
 import { api } from '../api';
-import { classNames } from '../components/helpers';
+import { classNames, formatDate } from '../components/helpers';
 import { PhilippineDatasetsPanel } from '../components/ai/PhilippineDatasetsPanel';
 import { PatientForecastPanel } from '../components/forecast/PatientForecastPanel';
 import {
@@ -359,6 +359,7 @@ function AiAnalyticsPanel() {
               <p className="mt-2 text-xs text-slate-500">
                 {aiInsights.total_cases} referral rows from Supabase
                 {aiInsights.scope === 'all_referrals' ? ' · all records' : ` · ${aiInsights.scope?.replaceAll('_', ' ')}`}
+                {aiInsights.generated_at ? ` · ${formatDate(aiInsights.generated_at)}` : ''}
               </p>
             </div>
 

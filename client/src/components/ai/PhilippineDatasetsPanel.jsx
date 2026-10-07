@@ -12,8 +12,11 @@ export function PhilippineDatasetsPanel({ context }) {
 
   return (
     <Card title="Compared with current referrals" icon={MapPin}>
+      {context.as_of_label ? (
+        <p className="text-xs font-medium text-cyan-800">As of {context.as_of_label}</p>
+      ) : null}
       {context.summary ? (
-        <p className="max-w-3xl text-sm leading-relaxed text-slate-600">{context.summary}</p>
+        <p className={`max-w-3xl text-sm leading-relaxed text-slate-600 ${context.as_of_label ? 'mt-2' : ''}`}>{context.summary}</p>
       ) : null}
 
       {rates.length ? (
@@ -31,7 +34,7 @@ export function PhilippineDatasetsPanel({ context }) {
                 />
               </div>
               <p className="mt-1 text-[11px] text-slate-500">
-                {row.cases} current referrals · {Number(row.population_2020).toLocaleString('en-PH')} residents
+                {row.cases} current referrals · {Number(row.population).toLocaleString('en-PH')} residents
               </p>
             </li>
           ))}
@@ -52,7 +55,7 @@ export function PhilippineDatasetsPanel({ context }) {
 
       {aligned.length > 1 ? (
         <p className="mt-3 text-xs text-slate-500">
-          Also matched in that regional report: {aligned.slice(1, 3).map((row) => row.condition).join(', ')}.
+          Also matched on {context.as_of_label || 'the current date'}: {aligned.slice(1, 3).map((row) => row.condition).join(', ')}.
         </p>
       ) : null}
 

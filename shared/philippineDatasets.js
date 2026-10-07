@@ -11,16 +11,34 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-function dataset(id) {
-  return data.datasets.find((item) => item.id === id);
+function latestInSeries(series) {
+  const matches = data.datasets.filter((item) => item.series === series);
+  if (!matches.length) throw new Error(`Missing Philippine dataset series: ${series}`);
+  return matches.sort((a, b) => String(b.as_of).localeCompare(String(a.as_of)))[0];
+}
+
+export function latestPopulation(row) {
+  const vintages = Object.entries(row || {})
+    .filter(([key, value]) => /^population_\d{4}$/.test(key) && Number.isFinite(value))
+    .map(([key, value]) => ({ year: Number(key.slice('population_'.length)), value }))
+    .sort((a, b) => b.year - a.year);
+  return vintages[0] || null;
 }
 
 export function listPhilippineDatasets() {
-  return data.datasets.map((item) => ({
+  const newest = new Map();
+  for (const item of data.datasets) {
+    const current = newest.get(item.series);
+    if (!current || String(item.as_of) > String(current.as_of)) newest.set(item.series, item);
+  }
+  return [...newest.values()].map((item) => ({
     id: item.id,
+    series: item.series,
     title: item.title,
     publisher: item.publisher,
     year: item.year,
+    as_of: item.as_of,
+    checked_on: item.checked_on || data.checked_on,
     geography: item.geography,
     description: item.description,
     source_url: item.source_url,
@@ -44,7 +62,7 @@ export function normalizePlaceKey(value) {
 
 function barangayIndex() {
   const index = new Map();
-  for (const row of dataset('psa-2020-koronadal-barangays').records) {
+  for (const row of latestInSeries('psa-koronadal-barangays').records) {
     index.set(normalizePlaceKey(row.name), row);
     for (const alias of row.aliases || []) {
       index.set(normalizePlaceKey(alias), row);
@@ -64,12 +82,15 @@ export function matchKoronadalBarangay(value) {
 function manilaParts(date) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Manila',
-    month: 'numeric',
+    day: 'numeric',
+    month: 'long',
     year: 'numeric',
   }).formatToParts(date);
-  const month = Number(parts.find((part) => part.type === 'month')?.value || 1);
-  const year = Number(parts.find((part) => part.type === 'year')?.value || date.getFullYear());
-  return { month, year };
+  const day = parts.find((part) => part.type === 'day')?.value || '1';
+  const monthName = parts.find((part) => part.type === 'month')?.value || 'January';
+  const year = parts.find((part) => part.type === 'year')?.value || String(date.getFullYear());
+  const month = MONTHS.indexOf(monthName) + 1 || 1;
+  return { month, year: Number(year), label: `${day} ${monthName} ${year}` };
 }
 
 function includesKeyword(text, keyword) {
@@ -89,13 +110,16 @@ function populationAdjusted(barangayRows = []) {
     .map((row, index) => {
       const match = matchKoronadalBarangay(row.label);
       if (!match) return null;
+      const population = latestPopulation(match);
+      if (!population) return null;
       const cases = Number(row.count || 0);
       return {
         label: row.label,
         psa_name: match.name,
         cases,
-        population_2020: match.population_2020,
-        cases_per_1000: Math.round((cases / match.population_2020) * 100000) / 100,
+        population: population.value,
+        population_year: population.year,
+        cases_per_1000: Math.round((cases / population.value) * 100000) / 100,
         population_share_percent: match.share_percent,
         raw_rank: index + 1,
       };
@@ -111,16 +135,16 @@ export function buildPhilippineAiContext({
   reasonText = '',
   at = new Date(),
 } = {}) {
-  const { month } = manilaParts(at);
+  const { month, label: asOfLabel } = manilaParts(at);
   const text = String(reasonText || '').toLowerCase();
-  const geography = dataset('psa-2020-geography').records;
-  const city = geography.find((row) => row.name === 'Koronadal City');
+  const geography = latestInSeries('psa-geography');
+  const cityPopulation = latestPopulation(geography.records.find((row) => row.name === 'Koronadal City'));
   const adjusted = populationAdjusted(barangayRows).slice(0, 5);
   const topRate = adjusted[0] || null;
   const rawLeader = matchKoronadalBarangay(barangayRows[0]?.label);
   const rateChangesRank = Boolean(topRate && rawLeader && topRate.psa_name !== rawLeader.name);
 
-  const matchedPrograms = dataset('doh-primary-care-programs').records
+  const matchedPrograms = latestInSeries('doh-primary-care-programs').records
     .map((program) => ({
       id: program.id,
       name: program.name,
@@ -130,7 +154,7 @@ export function buildPhilippineAiContext({
     }))
     .filter((program) => program.matched_keywords.length);
 
-  const notifiableMatches = dataset('doh-pidsr').records
+  const notifiableMatches = latestInSeries('doh-pidsr').records
     .map((disease) => ({
       name: disease.name,
       category: disease.category,
@@ -138,7 +162,7 @@ export function buildPhilippineAiContext({
     }))
     .filter((disease) => disease.matched_keywords.length);
 
-  const seasonalWatch = dataset('pagasa-seasonal-health').records.map((risk) => {
+  const seasonalWatch = latestInSeries('pagasa-seasonal-health').records.map((risk) => {
     const seen = matchedKeywords(text, risk.keywords);
     const inPeak = risk.peak_months.includes(month);
     return {
@@ -149,7 +173,8 @@ export function buildPhilippineAiContext({
     };
   }).filter((risk) => risk.seen_locally);
 
-  const morbidityAlignment = dataset('doh-fhsis-r12-2025').records
+  const morbiditySet = latestInSeries('doh-morbidity-r12');
+  const morbidityAlignment = morbiditySet.records
     .map((row) => {
       const seen = matchedKeywords(text, row.keywords);
       return {
@@ -157,7 +182,7 @@ export function buildPhilippineAiContext({
         condition: row.condition,
         cases: row.cases,
         local_match: seen.length > 0,
-        note: `${Number(row.cases).toLocaleString('en-PH')} SOCCSKSARGEN cases in December 2025.`,
+        note: `${Number(row.cases).toLocaleString('en-PH')} ${morbiditySet.geography} cases, compared on ${asOfLabel}.`,
       };
     })
     .filter((row) => row.local_match);
@@ -189,17 +214,20 @@ export function buildPhilippineAiContext({
   }
   if (morbidityAlignment[0]) {
     summaryParts.push(
-      `${morbidityAlignment[0].condition} is also in the December 2025 SOCCSKSARGEN morbidity list (${morbidityAlignment[0].note})`,
+      `${morbidityAlignment[0].condition} is also on the latest ${morbiditySet.geography} morbidity list, compared on ${asOfLabel}.`,
     );
   }
 
   return {
     timezone: 'Asia/Manila',
+    as_of_label: asOfLabel,
     month,
     month_name: MONTHS[month - 1],
     summary: summaryParts.join(' '),
     show: Boolean(rateChangesRank || notifiableMatches.length || seasonalWatch.length || morbidityAlignment.length),
-    city_population_2024: city.population_2024,
+    catalog_checked_on: data.checked_on,
+    city_population: cityPopulation?.value ?? null,
+    city_population_year: cityPopulation?.year ?? null,
     population_adjusted_barangays: rateChangesRank ? adjusted : [],
     matched_programs: matchedPrograms.slice(0, 6),
     notifiable_matches: notifiableMatches.slice(0, 6),

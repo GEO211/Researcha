@@ -6,7 +6,7 @@ Serverless-style FastAPI service that analyzes CareLink referral data.
 - **Where are the most cases?** barangay / city / referring & receiving centers
 - **Which places have too many requests?** overload scoring vs average volume
 - **What are the most cases?** referral type, urgency, severity, reason themes
-- **How does that compare with the Philippines?** PSA 2020 population (including all 27 Koronadal barangays), DOH programs, PIDSR notifiable diseases, the 2021 national morbidity ranking, and the PAGASA seasonal calendar
+- **How does that compare with the Philippines?** The newest dated file in each series, last checked 7 October 2026: the 2024 census, DOH programs, PIDSR, the latest SOCCSKSARGEN FHSIS table, and the PAGASA seasonal calendar
 
 Datasets live in `shared/philippineDatasets.json` and are applied on both `/insights` and `/datasets`.
 

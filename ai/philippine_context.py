@@ -23,11 +23,21 @@ with DATA_PATH.open(encoding="utf-8") as handle:
     _DATA = json.load(handle)
 
 
-def _dataset(dataset_id: str) -> dict[str, Any]:
-    for item in _DATA["datasets"]:
-        if item["id"] == dataset_id:
-            return item
-    raise KeyError(dataset_id)
+def _latest_in_series(series: str) -> dict[str, Any]:
+    matches = [item for item in _DATA["datasets"] if item.get("series") == series]
+    if not matches:
+        raise KeyError(series)
+    return max(matches, key=lambda item: str(item.get("as_of") or ""))
+
+
+def _latest_population(row: dict[str, Any]) -> dict[str, int] | None:
+    vintages = []
+    for key, value in row.items():
+        if key.startswith("population_") and key[11:].isdigit() and isinstance(value, int):
+            vintages.append({"year": int(key[11:]), "value": value})
+    if not vintages:
+        return None
+    return max(vintages, key=lambda item: item["year"])
 
 
 def list_philippine_datasets() -> list[dict[str, Any]]:
@@ -41,6 +51,8 @@ def list_philippine_datasets() -> list[dict[str, Any]]:
             "description": item["description"],
             "source_url": item["source_url"],
             "source_note": item["source_note"],
+            "as_of": item.get("as_of"),
+            "checked_on": item.get("checked_on") or _DATA.get("checked_on"),
             "record_count": len(item["records"]),
         }
         for item in _DATA["datasets"]
@@ -61,7 +73,7 @@ def normalize_place_key(value: str | None) -> str:
 
 def _barangay_index() -> dict[str, dict[str, Any]]:
     index: dict[str, dict[str, Any]] = {}
-    for row in _dataset("psa-2020-koronadal-barangays")["records"]:
+    for row in _latest_in_series("psa-koronadal-barangays")["records"]:
         index[normalize_place_key(row["name"])] = row
         for alias in row.get("aliases") or []:
             index[normalize_place_key(alias)] = row
@@ -96,15 +108,17 @@ def _population_adjusted(barangay_rows: list[dict[str, Any]]) -> list[dict[str, 
     ranked: list[dict[str, Any]] = []
     for index, row in enumerate(barangay_rows):
         match = match_koronadal_barangay(row.get("label"))
-        if not match:
+        population = _latest_population(match) if match else None
+        if not match or not population:
             continue
         cases = int(row.get("count") or 0)
         ranked.append({
             "label": row.get("label"),
             "psa_name": match["name"],
             "cases": cases,
-            "population_2020": match["population_2020"],
-            "cases_per_1000": round((cases / match["population_2020"]) * 1000, 2),
+            "population": population["value"],
+            "population_year": population["year"],
+            "cases_per_1000": round((cases / population["value"]) * 1000, 2),
             "population_share_percent": match["share_percent"],
             "raw_rank": index + 1,
         })
@@ -120,9 +134,11 @@ def build_philippine_context(
     moment = at or datetime.now(timezone.utc)
     manila = moment.astimezone(MANILA)
     month = manila.month
+    as_of_label = f"{manila.day} {MONTHS[month - 1]} {manila.year}"
     text = str(reason_text or "").lower()
-    geography = _dataset("psa-2020-geography")["records"]
-    city = next(row for row in geography if row["name"] == "Koronadal City")
+    geography = _latest_in_series("psa-geography")
+    city = next(row for row in geography["records"] if row["name"] == "Koronadal City")
+    city_population = _latest_population(city)
     adjusted = _population_adjusted(barangay_rows or [])[:5]
     top_rate = adjusted[0] if adjusted else None
     raw_row = (barangay_rows or [None])[0]
@@ -130,7 +146,7 @@ def build_philippine_context(
     rate_changes_rank = bool(top_rate and raw_leader and top_rate["psa_name"] != raw_leader["name"])
 
     matched_programs = []
-    for program in _dataset("doh-primary-care-programs")["records"]:
+    for program in _latest_in_series("doh-primary-care-programs")["records"]:
         hits = _matched_keywords(text, program["keywords"])
         if hits:
             matched_programs.append({
@@ -142,7 +158,7 @@ def build_philippine_context(
             })
 
     notifiable = []
-    for disease in _dataset("doh-pidsr")["records"]:
+    for disease in _latest_in_series("doh-pidsr")["records"]:
         hits = _matched_keywords(text, disease["keywords"])
         if hits:
             notifiable.append({
@@ -152,7 +168,7 @@ def build_philippine_context(
             })
 
     seasonal = []
-    for risk in _dataset("pagasa-seasonal-health")["records"]:
+    for risk in _latest_in_series("pagasa-seasonal-health")["records"]:
         seen = _matched_keywords(text, risk["keywords"])
         if not seen:
             continue
@@ -165,7 +181,8 @@ def build_philippine_context(
         })
 
     morbidity = []
-    for row in _dataset("doh-fhsis-r12-2025")["records"]:
+    morbidity_set = _latest_in_series("doh-morbidity-r12")
+    for row in morbidity_set["records"]:
         seen = _matched_keywords(text, row["keywords"])
         if not seen:
             continue
@@ -174,7 +191,9 @@ def build_philippine_context(
             "condition": row["condition"],
             "cases": row.get("cases"),
             "local_match": True,
-            "note": f"{row['cases']:,} SOCCSKSARGEN cases in December 2025.",
+            "note": (
+                f"{row['cases']:,} {morbidity_set['geography']} cases, compared on {as_of_label}."
+            ),
         })
 
     recommendations: list[str] = []
@@ -202,18 +221,21 @@ def build_philippine_context(
         )
     if morbidity:
         summary_parts.append(
-            f"{morbidity[0]['condition']} is also in the December 2025 SOCCSKSARGEN morbidity list "
-            f"({morbidity[0]['note']})"
+            f"{morbidity[0]['condition']} is also on the latest {morbidity_set['geography']} morbidity list, "
+            f"compared on {as_of_label}."
         )
     summary = " ".join(summary_parts)
 
     return {
         "timezone": "Asia/Manila",
+        "as_of_label": as_of_label,
         "month": month,
         "month_name": MONTHS[month - 1],
         "summary": summary,
         "show": bool(rate_changes_rank or notifiable or seasonal or morbidity),
-        "city_population_2024": city["population_2024"],
+        "catalog_checked_on": _DATA.get("checked_on"),
+        "city_population": city_population["value"] if city_population else None,
+        "city_population_year": city_population["year"] if city_population else None,
         "population_adjusted_barangays": adjusted if rate_changes_rank else [],
         "matched_programs": matched_programs[:6],
         "notifiable_matches": notifiable[:6],

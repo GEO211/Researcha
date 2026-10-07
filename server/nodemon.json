@@ -1,5 +1,5 @@
 {
-  "watch": ["src", "scripts", ".env"],
+  "watch": ["src", "scripts", ".env", "../shared"],
   "ignore": ["data/**", "node_modules/**"],
   "ext": "js,json"
 }
